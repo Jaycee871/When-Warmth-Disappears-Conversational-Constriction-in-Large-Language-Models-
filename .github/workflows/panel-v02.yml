@@ -7,6 +7,7 @@ on:
       - 'configs/experiment_v0.2.yaml'
       - 'src/run_panel_v02.py'
       - 'src/run_panel_v02_resilient.py'
+      - 'src/analyze_panel_v02.py'
       - '.github/workflows/panel-v02.yml'
   workflow_dispatch:
 
@@ -16,7 +17,7 @@ permissions:
 jobs:
   panel:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
@@ -38,6 +39,9 @@ jobs:
 
       - name: Run two-model v0.2 sentinel panel
         run: python src/run_panel_v02_resilient.py
+
+      - name: Analyze repeated-anchor drift before aggregation
+        run: python src/analyze_panel_v02.py
 
       - name: Upload v0.2 panel outputs
         if: always()
