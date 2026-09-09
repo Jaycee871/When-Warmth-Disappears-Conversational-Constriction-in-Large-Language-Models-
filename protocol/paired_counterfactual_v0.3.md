@@ -2,31 +2,33 @@
 
 ## Purpose
 
-The repeated-anchor design controls current wording but introduces two possible confounds: repeated exposure to the same anchor and the possibility that an explicit reset-style probe gate suppresses the very history effect being measured.
+The repeated-anchor design controls wording but can still be contaminated by repeated exposure to the same anchor. A second issue is more subtle: if a probe gate is sent as its own user turn and the model replies before the anchor arrives, that self-generated reply can itself carry history forward. The final anchor would then no longer be preceded by an identical conversational state.
 
-This extension therefore uses independent conversations that end in a single matched anchor. Different histories are compared under the same current probe without repeating the anchor earlier in the same conversation.
+This extension therefore uses independent conversations that end in exactly one matched **compound current probe**. The gate and anchor are concatenated into one user message, so no assistant response can intervene between them.
 
-## Two probe gates
+## Compound current probe
 
-Each history is crossed with two probe-gate types.
+For every matched comparison, the final user turn is:
+
+`<probe gate> + blank line + <anchor>`
+
+The entire user message is byte-for-byte identical across histories within the same model, trial, gate, and anchor block.
 
 ### Neutral gate
 
 > Now answer the following question.
 
-This gate does not refer to earlier style or ask the model to reset. It estimates path dependence with minimal intervention.
+This does not mention earlier style. It estimates path dependence with minimal intervention.
 
 ### Reset gate
 
 > For the next question, use whatever length and structure best answers it. Answer the question itself rather than following any earlier stylistic pattern.
 
-This gate actively neutralizes prior style instructions. It tests whether a history effect survives an explicit reset cue.
-
-The contrast between neutral-gate and reset-gate effects is itself informative. If an effect appears only under the neutral gate, ordinary stylistic carryover remains a plausible explanation. If it survives the reset gate, the history-dependent interpretation is stronger.
+This explicitly asks the model not to preserve earlier style. If a history effect survives this reset cue, a simple residual brevity-instruction explanation becomes less plausible.
 
 ## Independent-history design
 
-For each model, trial, gate type, and anchor topic, start a fresh conversation and construct exactly one history condition before the final anchor.
+For each model, trial, gate type, and anchor topic, a fresh conversation is started and exactly one history is constructed before the compound final probe.
 
 Primary histories:
 
@@ -41,36 +43,55 @@ Sensitization histories:
 - H5 weak cue without prior pressure
 - H6 combined pressure, explicit recovery, then the same weak cue
 
-The final anchor is identical within a matched trial block.
+Within a matched trial, warmup/content prompts are identical across histories. History execution order is randomized reproducibly so endpoint load or time-of-run drift does not align with condition order.
 
-## Primary path-dependence estimand
+## Dual-control estimands
 
-For each model, trial, gate type, and outcome Y:
+For each treatment history Hk, final-probe outcomes are compared against both controls:
 
-Treatment effect = Y(history Hk) - Y(warm control H0)
+1. Hk minus H0 warm control.
+2. Hk minus H1 neutral-terse control.
 
-Because each conversation contains only one final anchor, this comparison is not contaminated by within-conversation anchor repetition.
+A directional claim is strongest when the treatment effect has the same sign relative to both controls. If the direction flips depending on the control, the analyzer emits `CONTROL_SENSITIVE_DIRECTION` and directional pooling is not allowed.
+
+This is important because warm interaction may itself be an active treatment that increases elaboration.
 
 ## Reset-survival estimand
 
-For each history Hk:
+For each history and control baseline:
 
-Reset survival = Effect under reset gate - Effect under neutral gate
+Reset survival = treatment-control separation under the reset gate compared with the same separation under the neutral gate.
 
-This is not expected to have one universal sign. The key question is whether the treatment-control separation remains materially present after the reset instruction.
+The key question is not a universal sign. It is whether the history-control separation remains materially present after the reset cue.
 
 ## Sensitization estimand
 
 H5 and H6 receive the same final weak cue. Their matched difference estimates whether prior pressure changes the response to an otherwise identical weak cue.
 
+## Generation-budget rule
+
+History turns and the confirmatory final probe use separate completion budgets:
+
+- history turns: 1536 tokens;
+- final compound probe: 3072 tokens.
+
+The larger final budget follows Pilot 003, where a 1536-token ceiling still censored 9 of 32 repeated anchors. Any final probe with `finish_reason=length` is excluded from confirmatory response-length effects.
+
+History-turn truncation is recorded separately because it can change the constructed history and must be inspected as an integrity diagnostic.
+
+## Topic robustness
+
+Three matched anchors are defined: education/AI, scientific-model complexity, and automated decision systems. Sentinel runs may use one anchor; confirmatory work must rotate across all three with multiple trials.
+
 ## Guardrails
 
-- Inspect `finish_reason` before interpreting response length.
-- Treat any `finish_reason=length` output as truncated for confirmatory response-length analyses.
+- Verify that `current_probe_text` is identical across histories inside every matched block.
+- Inspect final `finish_reason` before interpreting response length.
+- Record history-turn truncation and retry incidence.
 - Keep model-specific effects separate before pooling.
-- Report retry incidence by model and history.
-- Do not treat latency from retried calls as a behavioral endpoint without sensitivity analysis.
-- Use multiple trials and multiple anchor topics before any inferential claim.
+- Emit `DO_NOT_POOL_DIRECTION` when model families disagree in effect direction.
+- Do not interpret retry-inflated latency as behavior without sensitivity analysis.
+- Treat all v0.3 sentinel runs as engineering evidence until replication is increased and the analysis is preregistered.
 
 ## Interpretation
 
