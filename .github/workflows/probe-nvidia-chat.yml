@@ -1,0 +1,41 @@
+name: nvidia-chat-model-probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/probe_nvidia_chat_models.py'
+      - '.github/workflows/probe-nvidia-chat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependency
+        run: python -m pip install --quiet requests
+
+      - name: Probe candidate chat models
+        run: python scripts/probe_nvidia_chat_models.py
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvidia-chat-model-probe
+          path: results/model_probe/
+          retention-days: 30
