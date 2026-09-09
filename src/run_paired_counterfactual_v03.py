@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -86,8 +87,9 @@ def call_chat(token: str, model: str, messages: list[dict], generation: dict) ->
     raise RuntimeError("retry loop exhausted")
 
 
-def content_for_trial(bank: list[str], trial: int, history_index: int) -> list[str]:
-    offset = ((trial - 1) * 2 + history_index) % len(bank)
+def content_for_trial(bank: list[str], trial: int) -> list[str]:
+    """Return one shared content triplet for every history in a matched trial block."""
+    offset = ((trial - 1) * 3) % len(bank)
     return [bank[(offset + i) % len(bank)] for i in range(3)]
 
 
@@ -97,12 +99,12 @@ def run_history(
     cfg: dict,
     history_id: str,
     history: dict,
-    history_index: int,
     gate_id: str,
     anchor: dict,
     trial: int,
+    execution_order: int,
 ) -> dict:
-    contents = content_for_trial(cfg["content_bank"], trial, history_index)
+    contents = content_for_trial(cfg["content_bank"], trial)
     messages = [{"role": "system", "content": cfg["system_prompt"]}]
 
     turns = [
@@ -129,11 +131,13 @@ def run_history(
     return {
         "model": model,
         "trial": trial,
+        "execution_order": execution_order,
         "history": history_id,
         "history_label": history["label"],
         "gate": gate_id,
         "anchor_id": anchor["id"],
         "anchor_text": anchor["text"],
+        "shared_content_triplet": contents,
         "assistant_text": final_text,
         **compute_metrics(final_text),
         **final_meta,
@@ -151,14 +155,22 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     rows = []
+    execution_order = 0
 
-    for model in models:
+    for model_index, model in enumerate(models):
         for trial in range(1, trials + 1):
             anchor = anchors[(trial - 1) % len(anchors)]
-            for gate_id in gate_ids:
-                for history_index, history_id in enumerate(history_ids):
+            rng = random.Random(int(cfg["seed"]) + model_index * 100003 + trial * 1009)
+            gate_order = gate_ids.copy()
+            rng.shuffle(gate_order)
+            for gate_id in gate_order:
+                history_order = history_ids.copy()
+                rng.shuffle(history_order)
+                for history_id in history_order:
+                    execution_order += 1
                     print(
-                        f"RUN model={model} trial={trial} gate={gate_id} history={history_id} anchor={anchor['id']}",
+                        f"RUN order={execution_order} model={model} trial={trial} gate={gate_id} "
+                        f"history={history_id} anchor={anchor['id']}",
                         flush=True,
                     )
                     rows.append(
@@ -168,10 +180,10 @@ def main() -> None:
                             cfg,
                             history_id,
                             cfg["histories"][history_id],
-                            history_index,
                             gate_id,
                             anchor,
                             trial,
+                            execution_order,
                         )
                     )
 
@@ -189,6 +201,8 @@ def main() -> None:
                 "histories": history_ids,
                 "anchors": [a["id"] for a in anchors],
                 "single_anchor_per_conversation": True,
+                "content_matched_within_trial": True,
+                "execution_order_randomized": True,
                 "interpretation": "history-dependent behavior within retained context; no claim of subjective emotion",
             },
             f,
