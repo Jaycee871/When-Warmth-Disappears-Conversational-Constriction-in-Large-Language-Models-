@@ -1,0 +1,49 @@
+name: paired-v03-postrun-censoring-audit
+
+on:
+  workflow_run:
+    workflows: ['paired-v03-neutral-sentinel']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  audit:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download paired v0.3 artifact from completed sentinel
+        uses: actions/download-artifact@v4
+        with:
+          name: paired-v03-neutral-sentinel
+          path: results/paired_v03
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Audit output censoring and token-budget headroom
+        id: audit
+        shell: bash
+        run: |
+          set +e
+          python src/audit_output_censoring_v03.py
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload censoring audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-v03-censoring-audit
+          path: results/paired_v03/censoring_audit.json
+          retention-days: 30
+
+      - name: Enforce censoring gate
+        if: ${{ steps.audit.outputs.exit_code != '0' }}
+        run: |
+          echo 'Exact response-length inference is blocked by right-censoring. Inspect paired-v03-censoring-audit.'
+          exit 1
