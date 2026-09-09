@@ -2,96 +2,91 @@
 
 ## Why v0.3 is necessary
 
-v0.2 established repeated anchors and control-subtracted drift, but direct response-format instructions can remain active in the conversation immediately before an anchor. A short post-pressure answer may therefore reflect ordinary instruction-following rather than a history-dependent conversational state.
+v0.2 established repeated anchors and control-subtracted drift, but it left three major confounds:
 
-v0.3 makes the current probe instruction identical across histories.
+1. direct response-format instructions could still be active immediately before an anchor;
+2. a probe gate sent as a separate turn would allow an assistant reply to intervene before the anchor, creating self-conditioning;
+3. content order could differ across histories.
 
-The core question becomes:
-
-> After different conversational histories, does the model respond differently to the exact same current probe under an explicit common response-style instruction?
+v0.3 removes these problems by making every confirmatory probe a single compound user turn and by matching non-manipulation content across histories.
 
 ## State definition
 
 This project uses **functional conversational state** to mean a history-dependent pattern in behavior or internal representations at the current turn.
 
-For ordinary stateless chat APIs, the model does not carry a hidden state across independent API calls except through the supplied context. Therefore v0.3 does **not** claim memory outside the context window. A history effect means that the same current probe is conditionally processed differently because the retained conversation history differs.
+For ordinary stateless chat APIs, there is no claim of hidden memory outside supplied context. A history effect means that the same current user message is processed differently because the retained conversation history differs.
 
-Open-weight experiments may additionally compare hidden-state representations at the same probe token sequence under different histories.
+Open-weight experiments may additionally compare hidden-state representations at matched probe-token positions under different histories.
 
-## Common probe gate
+## Compound current probe
 
-Immediately before every confirmatory anchor, all conditions receive exactly the same gate:
+Every anchor event uses one user message:
+
+`<common probe gate> + blank line + <identical anchor>`
+
+The gate is:
 
 > For the next question, use whatever length and structure best answers it. Answer the question itself rather than following any earlier stylistic pattern.
 
-The identical anchor follows immediately after this gate.
-
-Any remaining between-condition difference is harder to explain as a still-active brevity instruction.
+No assistant reply occurs between the gate and anchor. This blocks the possibility that a history-dependent gate response becomes an extra mediator before the measured answer.
 
 ## Histories
 
-- H0 Warm history control
-- H1 Neutral-terse history control
-- H2 Format-constriction history
-- H3 Negative-evaluation history
-- H4 Combined constriction + negative-evaluation history
-- H5 Weak-cue control without prior pressure
-- H6 Combined history → explicit recovery → weak re-exposure
+- H0 warm history control
+- H1 neutral-terse history control
+- H2 format-constriction history
+- H3 negative-evaluation history
+- H4 combined constriction + negative-evaluation history
+- H5 weak-cue control without prior pressure
+- H6 combined history → explicit recovery → matched weak re-exposure
 
-H5 and H6 use the **same weak re-exposure cue**. Their contrast is the primary sensitization counterfactual.
+H5 and H6 use the same weak cue. Their contrast is the sensitization counterfactual.
 
-## Probe schedule
+## Repeated-probe schedule
 
-Each longitudinal run contains:
+Each longitudinal run contains 11 user turns:
 
 1. shared warmup content
 2. shared warmup content
-3. common probe gate
-4. anchor A — baseline
-5. history manipulation 1
-6. content prompt
-7. history manipulation 2
-8. common probe gate
-9. anchor B — post-history
-10. recovery cue
-11. common probe gate
-12. anchor C — post-recovery
-13. weak re-exposure cue
-14. common probe gate
-15. anchor D — post-re-exposure
+3. compound probe A — baseline
+4. history manipulation 1
+5. shared content prompt
+6. history manipulation 2
+7. compound probe B — post-history
+8. recovery cue
+9. compound probe C — post-recovery
+10. re-exposure cue
+11. compound probe D — post-re-exposure
 
-The common probe gate and anchor text are identical across all histories.
+The compound probe text is identical at all four anchor positions and across histories. Non-manipulation content is also identical across histories within each matched trial.
 
 ## Fresh-session counterfactual
 
-For every model, the anchor is also queried in a fresh session containing only:
+For every model and trial, the same compound probe is queried in a fresh context containing only:
 
-1. system prompt
-2. common probe gate
-3. anchor
+1. system prompt;
+2. compound current probe.
 
-This estimates the model's no-history reference distribution.
-
-## Context-ablation counterfactuals
-
-For a subset of replicated runs, construct probe contexts from the recorded transcript while removing one manipulation family at a time:
-
-- remove brevity/format directives but retain evaluative turns;
-- remove evaluative turns but retain format directives;
-- remove all manipulation turns but retain neutral content history.
-
-The anchor and common probe gate remain unchanged. These are post hoc causal ablations of the textual context, not claims about erasing an internal memory.
+This estimates the no-history reference distribution without introducing a separate gate-response turn.
 
 ## Primary estimands
 
-For each outcome Y and phase p:
+For each outcome and phase:
 
-1. Within-run drift from baseline.
-2. Warm-control-subtracted drift (difference-in-differences).
-3. Fresh-session difference.
-4. H2 versus H3: format constraint versus social evaluation.
-5. H4 versus H0/H1: combined history effect.
+1. within-run drift from baseline;
+2. warm-control-subtracted drift;
+3. neutral-terse-control-subtracted drift when available;
+4. fresh-session difference;
+5. H2 versus H3: format constraint versus social evaluation;
 6. H6 versus H5: prior-history sensitization to the same weak cue.
+
+Model-specific trajectories are inspected before pooling.
+
+## Generation-budget rule
+
+History turns use a 1536-token completion budget. Confirmatory compound probes use 3072 tokens.
+
+Pilot 003 showed that 1536 tokens still censored 9 of 32 anchors, so `finish_reason=length` is treated as completion censoring. A response-length effect is confirmatory only when the relevant treatment baseline/phase and matched control baseline/phase probes are complete.
 
 ## Primary outcomes
 
@@ -122,15 +117,23 @@ Do not assume one monotonic response. Pre-specified descriptive regimes are:
 - compensatory elaboration / repair;
 - mixed or oscillatory adaptation.
 
-Model-specific trajectories are inspected before pooling.
-
 ## Sensitization claim
 
-Sensitization requires H6 to respond more strongly to the **same weak cue** than H5, after controlling for baseline and warm-control drift. A single H6 trajectory is insufficient.
+Sensitization requires H6 to respond more strongly to the same weak cue than H5 after control adjustment and replication. A single H6 trajectory is insufficient.
 
 ## Hysteresis claim
 
-Hysteresis means that, within the retained context, the post-recovery matched probe remains displaced from baseline beyond normal warm-control drift even after an explicit common response-style gate. It does not mean a state survives deletion of conversational context.
+Hysteresis means that, within retained context, the post-recovery matched probe remains displaced from baseline beyond normal control drift after the explicit common reset-style instruction. It does not mean a state survives deletion of conversational context.
+
+## Context-ablation extension
+
+For selected replicated transcripts, reconstruct the same final compound probe while deleting one manipulation family at a time:
+
+- remove format directives but retain evaluative turns;
+- remove evaluative turns but retain format directives;
+- remove both manipulation families while retaining neutral content history.
+
+These are causal ablations of textual context, not claims about erasing an internal memory.
 
 ## Interpretation boundary
 
