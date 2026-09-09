@@ -1,14 +1,6 @@
 name: paired-v03-neutral-sentinel
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'configs/paired_counterfactual_v0.3.yaml'
-      - 'protocol/paired_counterfactual_v0.3.md'
-      - 'src/run_paired_counterfactual_v03.py'
-      - 'src/analyze_paired_counterfactual_v03.py'
-      - '.github/workflows/paired-v03-neutral-sentinel.yml'
   workflow_dispatch:
 
 permissions:
