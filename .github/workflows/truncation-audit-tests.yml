@@ -1,0 +1,33 @@
+name: truncation-audit-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/audit_output_censoring_v03.py'
+      - 'tests/test_truncation_audit_v03.py'
+      - 'analysis/truncation_policy_v03.md'
+      - '.github/workflows/truncation-audit-tests.yml'
+  pull_request:
+    paths:
+      - 'src/audit_output_censoring_v03.py'
+      - 'tests/test_truncation_audit_v03.py'
+      - 'analysis/truncation_policy_v03.md'
+      - '.github/workflows/truncation-audit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run censoring-audit unit tests
+        run: python -m unittest -v tests/test_truncation_audit_v03.py
+      - name: Syntax check audit script
+        run: python -m py_compile src/audit_output_censoring_v03.py
