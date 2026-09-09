@@ -6,7 +6,6 @@ import os
 import random
 import time
 from pathlib import Path
-from statistics import mean
 
 import requests
 import yaml
@@ -32,12 +31,23 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def csv_env(name: str) -> list[str]:
+    raw = os.getenv(name, "").strip()
+    return [x.strip() for x in raw.split(",") if x.strip()] if raw else []
+
+
 def model_list() -> list[str]:
-    raw = os.getenv("MODEL_LIST", "nvidia/nemotron-3-super-120b-a12b,openai/gpt-oss-20b")
-    return [m.strip() for m in raw.split(",") if m.strip()]
+    selected = csv_env("MODEL_LIST")
+    return selected or ["nvidia/nemotron-3-super-120b-a12b", "openai/gpt-oss-20b"]
 
 
-def call_chat(token: str, model: str, messages: list[dict], generation: dict) -> tuple[str, dict]:
+def call_chat(
+    token: str,
+    model: str,
+    messages: list[dict],
+    generation: dict,
+    max_tokens: int,
+) -> tuple[str, dict]:
     attempts = int(os.getenv("NVIDIA_RETRY_ATTEMPTS", "7"))
     base_delay = float(os.getenv("NVIDIA_RETRY_BASE_DELAY", "2"))
     retry_events: list[dict] = []
@@ -59,10 +69,10 @@ def call_chat(token: str, model: str, messages: list[dict], generation: dict) ->
                     "messages": messages,
                     "temperature": generation["temperature"],
                     "top_p": generation["top_p"],
-                    "max_tokens": generation["max_tokens"],
+                    "max_tokens": int(max_tokens),
                     "stream": False,
                 },
-                timeout=240,
+                timeout=360,
             )
             attempt_latency = time.perf_counter() - started
             response.raise_for_status()
@@ -80,17 +90,20 @@ def call_chat(token: str, model: str, messages: list[dict], generation: dict) ->
                 "api_model": payload.get("model"),
                 "api_created": payload.get("created"),
                 "usage": payload.get("usage", {}),
+                "requested_max_tokens": int(max_tokens),
             }
         except requests.HTTPError as exc:
             response = exc.response
             status = response.status_code if response is not None else None
             if status not in TRANSIENT_HTTP or attempt >= attempts:
                 raise
-            raw_retry = response.headers.get("Retry-After") if response is not None else None
-            try:
-                retry_after = float(raw_retry) if raw_retry else None
-            except ValueError:
-                retry_after = None
+            retry_after = None
+            if response is not None:
+                raw = response.headers.get("Retry-After")
+                try:
+                    retry_after = float(raw) if raw else None
+                except ValueError:
+                    retry_after = None
             delay = retry_after if retry_after is not None else min(30.0, base_delay * (2 ** (attempt - 1)))
             retry_events.append({"attempt": attempt, "kind": "http", "status": status, "wait_s": delay})
         except (requests.ConnectionError, requests.Timeout) as exc:
@@ -106,42 +119,53 @@ def call_chat(token: str, model: str, messages: list[dict], generation: dict) ->
     raise RuntimeError("retry loop exhausted")
 
 
-def rotated_content(bank: list[str], trial: int, history_index: int) -> list[str]:
-    offset = (trial * 3 + history_index * 2) % len(bank)
+def content_for_trial(bank: list[str], trial: int) -> list[str]:
+    """Use identical content prompts across histories within a trial."""
+    offset = ((trial - 1) * 3) % len(bank)
     return [bank[(offset + i) % len(bank)] for i in range(3)]
 
 
+def compound_probe(gate: str, anchor: str) -> str:
+    return f"{gate.strip()}\n\n{anchor.strip()}"
+
+
 def event_schedule(cfg: dict, history: dict, contents: list[str]) -> list[dict]:
-    gate = cfg["probe_gate"]
-    anchor = cfg["anchor_prompt"]
+    probe = compound_probe(cfg["probe_gate"], cfg["anchor_prompt"])
     return [
         {"kind": "content", "phase": "warmup", "text": f"Let's explore an idea together. {contents[0]}"},
         {"kind": "content", "phase": "warmup", "text": f"That's interesting. {contents[1]}"},
-        {"kind": "probe_gate", "phase": "baseline_gate", "text": gate},
-        {"kind": "anchor", "phase": "baseline", "text": anchor, "anchor_index": 1},
+        {"kind": "anchor", "phase": "baseline", "text": probe, "anchor_index": 1},
         {"kind": "stimulus", "phase": "history_1", "text": history["manipulation_1"]},
         {"kind": "content", "phase": "history_1", "text": contents[2]},
         {"kind": "stimulus", "phase": "history_2", "text": history["manipulation_2"]},
-        {"kind": "probe_gate", "phase": "post_history_gate", "text": gate},
-        {"kind": "anchor", "phase": "post_history", "text": anchor, "anchor_index": 2},
+        {"kind": "anchor", "phase": "post_history", "text": probe, "anchor_index": 2},
         {"kind": "stimulus", "phase": "recovery", "text": history["recovery"]},
-        {"kind": "probe_gate", "phase": "post_recovery_gate", "text": gate},
-        {"kind": "anchor", "phase": "post_recovery", "text": anchor, "anchor_index": 3},
+        {"kind": "anchor", "phase": "post_recovery", "text": probe, "anchor_index": 3},
         {"kind": "stimulus", "phase": "reexposure", "text": history["reexposure"]},
-        {"kind": "probe_gate", "phase": "post_reexposure_gate", "text": gate},
-        {"kind": "anchor", "phase": "post_reexposure", "text": anchor, "anchor_index": 4},
+        {"kind": "anchor", "phase": "post_reexposure", "text": probe, "anchor_index": 4},
     ]
 
 
-def run_one(token: str, model: str, cfg: dict, history_id: str, history: dict, trial: int, history_index: int) -> list[dict]:
-    contents = rotated_content(cfg["content_bank"], trial, history_index)
+def run_one(
+    token: str,
+    model: str,
+    cfg: dict,
+    history_id: str,
+    history: dict,
+    trial: int,
+) -> list[dict]:
+    contents = content_for_trial(cfg["content_bank"], trial)
     schedule = event_schedule(cfg, history, contents)
     messages = [{"role": "system", "content": cfg["system_prompt"]}]
     rows = []
+    generation = cfg["generation"]
+    history_cap = int(generation["history_max_tokens"])
+    probe_cap = int(generation["probe_max_tokens"])
 
     for turn, event in enumerate(schedule, start=1):
         messages.append({"role": "user", "content": event["text"]})
-        text, meta = call_chat(token, model, messages, cfg["generation"])
+        cap = probe_cap if event["kind"] == "anchor" else history_cap
+        text, meta = call_chat(token, model, messages, generation, cap)
         row = {
             "model": model,
             "history": history_id,
@@ -153,13 +177,14 @@ def run_one(token: str, model: str, cfg: dict, history_id: str, history: dict, t
             "anchor_index": event.get("anchor_index"),
             "user_text": event["text"],
             "assistant_text": text,
+            "shared_content_triplet": contents,
             **compute_metrics(text),
             **meta,
         }
         rows.append(row)
         messages.append({"role": "assistant", "content": text})
         print(
-            f"{model} {history_id} trial={trial} turn={turn:02d} {event['phase']:<22} "
+            f"{model} {history_id} trial={trial} turn={turn:02d} {event['phase']:<18} "
             f"words={int(row['response_words']):4d} retries={row['retry_count']} finish={row['finish_reason']}",
             flush=True,
         )
@@ -167,18 +192,23 @@ def run_one(token: str, model: str, cfg: dict, history_id: str, history: dict, t
 
 
 def run_fresh_probe(token: str, model: str, cfg: dict, trial: int) -> dict:
+    generation = cfg["generation"]
+    current_probe = compound_probe(cfg["probe_gate"], cfg["anchor_prompt"])
     messages = [
         {"role": "system", "content": cfg["system_prompt"]},
-        {"role": "user", "content": cfg["probe_gate"]},
+        {"role": "user", "content": current_probe},
     ]
-    gate_text, gate_meta = call_chat(token, model, messages, cfg["generation"])
-    messages.append({"role": "assistant", "content": gate_text})
-    messages.append({"role": "user", "content": cfg["anchor_prompt"]})
-    text, meta = call_chat(token, model, messages, cfg["generation"])
+    text, meta = call_chat(
+        token,
+        model,
+        messages,
+        generation,
+        int(generation["probe_max_tokens"]),
+    )
     return {
         "model": model,
         "trial": trial,
-        "probe_gate_assistant_text": gate_text,
+        "current_probe_text": current_probe,
         "assistant_text": text,
         **compute_metrics(text),
         **meta,
@@ -210,8 +240,13 @@ def anchor_dynamics(rows: list[dict]) -> list[dict]:
         }
         for row in vals[1:]:
             phase = row["phase"]
+            complete = baseline.get("finish_reason") != "length" and row.get("finish_reason") != "length"
             item[f"{phase}_words"] = row["response_words"]
-            item[f"{phase}_log_word_ratio"] = round(log_ratio(row["response_words"], baseline["response_words"]), 6)
+            item[f"{phase}_log_word_ratio"] = (
+                round(log_ratio(row["response_words"], baseline["response_words"]), 6)
+                if complete
+                else None
+            )
             item[f"{phase}_finish_reason"] = row["finish_reason"]
         out.append(item)
     return out
@@ -222,21 +257,26 @@ def main() -> None:
     cfg = load_config()
     models = model_list()
     trials = int(os.getenv("PANEL_TRIALS", "1"))
-    selected = os.getenv("HISTORY_LIST", "").strip()
-    history_ids = [x.strip() for x in selected.split(",") if x.strip()] if selected else list(cfg["histories"].keys())
+    requested = csv_env("HISTORY_LIST")
+    history_ids = requested or list(cfg["histories"].keys())
+    unknown = [h for h in history_ids if h not in cfg["histories"]]
+    if unknown:
+        raise SystemExit(f"unknown histories: {unknown}")
 
     random.seed(cfg["seed"])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
     fresh: list[dict] = []
 
-    for model in models:
+    for model_index, model in enumerate(models):
         for trial in range(1, trials + 1):
             fresh.append(run_fresh_probe(token, model, cfg, trial))
-        for history_index, history_id in enumerate(history_ids):
-            for trial in range(1, trials + 1):
+            rng = random.Random(int(cfg["seed"]) + model_index * 100003 + trial * 1009)
+            history_order = history_ids.copy()
+            rng.shuffle(history_order)
+            for history_id in history_order:
                 print(f"RUN model={model} history={history_id} trial={trial}", flush=True)
-                rows.extend(run_one(token, model, cfg, history_id, cfg["histories"][history_id], trial, history_index))
+                rows.extend(run_one(token, model, cfg, history_id, cfg["histories"][history_id], trial))
 
     with (OUT_DIR / "turns.jsonl").open("w", encoding="utf-8") as f:
         for row in rows:
@@ -258,8 +298,12 @@ def main() -> None:
                 "histories": history_ids,
                 "trials": trials,
                 "seed": cfg["seed"],
-                "probe_gate": cfg["probe_gate"],
-                "anchor": cfg["anchor_prompt"],
+                "current_probe": compound_probe(cfg["probe_gate"], cfg["anchor_prompt"]),
+                "gate_and_anchor_single_user_turn": True,
+                "content_matched_within_trial": True,
+                "history_execution_order_randomized": True,
+                "history_max_tokens": cfg["generation"]["history_max_tokens"],
+                "probe_max_tokens": cfg["generation"]["probe_max_tokens"],
                 "interpretation": "history-dependent behavior within retained context; no claim of subjective emotion or context-independent memory",
             },
             f,
