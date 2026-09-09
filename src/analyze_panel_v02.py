@@ -30,13 +30,7 @@ METRICS = [
 def load_rows() -> list[dict]:
     if not IN_PATH.exists():
         raise SystemExit(f"missing input: {IN_PATH}")
-    rows = []
-    with IN_PATH.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-    return rows
+    return [json.loads(line) for line in IN_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def token_set(text: str) -> set[str]:
@@ -59,13 +53,18 @@ def sign(x: float, eps: float = 1e-12) -> int:
     return 0
 
 
-def classify_word_response(log_ratio: float) -> str:
-    # Exploratory only. Thresholds are reciprocal: 0.8x and 1.25x baseline.
+def classify_word_response(log_ratio: float | None) -> str:
+    if log_ratio is None:
+        return "truncated"
     if log_ratio <= math.log(0.8):
         return "shrink"
     if log_ratio >= math.log(1.25):
         return "overcompensate"
     return "stable"
+
+
+def anchor_complete(row: dict) -> bool:
+    return row.get("finish_reason") != "length"
 
 
 def per_run_anchor_deltas(rows: list[dict]) -> list[dict]:
@@ -86,6 +85,14 @@ def per_run_anchor_deltas(rows: list[dict]) -> list[dict]:
             if current is None:
                 continue
 
+            pair_complete = anchor_complete(baseline) and anchor_complete(current)
+            word_log_change = None
+            if pair_complete:
+                word_log_change = math.log(
+                    (float(current["response_words"]) + 1.0)
+                    / (float(baseline["response_words"]) + 1.0)
+                )
+
             item = {
                 "model": model,
                 "condition": condition,
@@ -93,36 +100,56 @@ def per_run_anchor_deltas(rows: list[dict]) -> list[dict]:
                 "phase": phase,
                 "baseline_words": float(baseline["response_words"]),
                 "phase_words": float(current["response_words"]),
-                "word_log_change": math.log((float(current["response_words"]) + 1.0) / (float(baseline["response_words"]) + 1.0)),
-                "anchor_jaccard_distance": jaccard_distance(baseline.get("assistant_text", ""), current.get("assistant_text", "")),
+                "baseline_finish_reason": baseline.get("finish_reason"),
+                "phase_finish_reason": current.get("finish_reason"),
+                "anchor_pair_complete": pair_complete,
+                "word_log_change": word_log_change,
+                "anchor_jaccard_distance": jaccard_distance(
+                    baseline.get("assistant_text", ""), current.get("assistant_text", "")
+                ),
                 "baseline_retry_count": int(baseline.get("retry_count", 0) or 0),
                 "phase_retry_count": int(current.get("retry_count", 0) or 0),
             }
-            item["response_mode"] = classify_word_response(item["word_log_change"])
+            item["response_mode"] = classify_word_response(word_log_change)
             for metric in METRICS:
                 if metric == "response_words":
                     continue
-                item[f"delta_{metric}"] = float(current.get(metric, 0.0)) - float(baseline.get(metric, 0.0))
+                item[f"delta_{metric}"] = float(current.get(metric, 0.0)) - float(
+                    baseline.get(metric, 0.0)
+                )
             output.append(item)
     return output
 
 
-def control_means(deltas: list[dict], control: str) -> dict[tuple, dict[str, float]]:
+def control_means(deltas: list[dict], control: str) -> dict[tuple, dict]:
     buckets: dict[tuple, list[dict]] = defaultdict(list)
     for d in deltas:
         if d["condition"] == control:
             buckets[(d["model"], d["phase"])].append(d)
 
-    out: dict[tuple, dict[str, float]] = {}
+    fields = ["word_log_change", "anchor_jaccard_distance"] + [
+        f"delta_{m}" for m in METRICS if m != "response_words"
+    ]
+    out: dict[tuple, dict] = {}
     for key, vals in buckets.items():
-        fields = ["word_log_change", "anchor_jaccard_distance"] + [f"delta_{m}" for m in METRICS if m != "response_words"]
-        out[key] = {field: mean(float(v[field]) for v in vals) for field in fields}
+        complete = [v for v in vals if v["anchor_pair_complete"]]
+        entry = {
+            "n_total": len(vals),
+            "n_complete": len(complete),
+        }
+        for field in fields:
+            source = complete if field == "word_log_change" else vals
+            present = [float(v[field]) for v in source if v.get(field) is not None]
+            entry[field] = mean(present) if present else None
+        out[key] = entry
     return out
 
 
 def add_did(deltas: list[dict], control: str, label: str) -> list[dict]:
     controls = control_means(deltas, control)
-    fields = ["word_log_change", "anchor_jaccard_distance"] + [f"delta_{m}" for m in METRICS if m != "response_words"]
+    fields = ["word_log_change", "anchor_jaccard_distance"] + [
+        f"delta_{m}" for m in METRICS if m != "response_words"
+    ]
     out = []
     for d in deltas:
         if d["condition"] == control:
@@ -130,6 +157,8 @@ def add_did(deltas: list[dict], control: str, label: str) -> list[dict]:
         ctrl = controls.get((d["model"], d["phase"]))
         if ctrl is None:
             continue
+
+        confirmatory_valid = bool(d["anchor_pair_complete"] and ctrl["n_complete"] > 0)
         row = {
             "model": d["model"],
             "condition": d["condition"],
@@ -138,9 +167,19 @@ def add_did(deltas: list[dict], control: str, label: str) -> list[dict]:
             "control": control,
             "control_label": label,
             "response_mode_raw": d["response_mode"],
+            "treatment_anchor_pair_complete": d["anchor_pair_complete"],
+            "control_complete_pairs": ctrl["n_complete"],
+            "confirmatory_length_valid": confirmatory_valid,
         }
         for field in fields:
-            row[f"did_{field}"] = float(d[field]) - float(ctrl[field])
+            left = d.get(field)
+            right = ctrl.get(field)
+            if field == "word_log_change" and not confirmatory_valid:
+                row[f"did_{field}"] = None
+            elif left is None or right is None:
+                row[f"did_{field}"] = None
+            else:
+                row[f"did_{field}"] = float(left) - float(right)
         out.append(row)
     return out
 
@@ -158,16 +197,17 @@ def summarize_did(did_rows: list[dict]) -> list[dict]:
             "condition": condition,
             "phase": phase,
             "control": control,
-            "n": len(vals),
+            "n_total": len(vals),
+            "n_confirmatory_length_valid": sum(bool(v["confirmatory_length_valid"]) for v in vals),
         }
         for field in metric_fields:
-            row[f"mean_{field}"] = mean(float(v[field]) for v in vals)
+            present = [float(v[field]) for v in vals if v.get(field) is not None]
+            row[f"mean_{field}"] = mean(present) if present else None
         out.append(row)
     return out
 
 
 def aggregation_diagnostics(summary: list[dict]) -> list[dict]:
-    # Stratified-first diagnostic: flag conditions where model-specific DID signs diverge.
     buckets: dict[tuple, list[dict]] = defaultdict(list)
     for row in summary:
         buckets[(row["condition"], row["phase"], row["control"])].append(row)
@@ -175,17 +215,25 @@ def aggregation_diagnostics(summary: list[dict]) -> list[dict]:
     out = []
     for (condition, phase, control), vals in sorted(buckets.items()):
         key = "mean_did_word_log_change"
-        model_signs = {v["model"]: sign(float(v.get(key, 0.0))) for v in vals}
+        valid_vals = [v for v in vals if v.get(key) is not None]
+        model_signs = {v["model"]: sign(float(v[key])) for v in valid_vals}
         nonzero = [s for s in model_signs.values() if s != 0]
         heterogeneous = len(set(nonzero)) > 1
+        if len(valid_vals) < 2:
+            warning = "INSUFFICIENT_COMPLETE_MODELS"
+        elif heterogeneous:
+            warning = "DO_NOT_POOL_DIRECTION"
+        else:
+            warning = "direction_consistent"
         out.append({
             "condition": condition,
             "phase": phase,
             "control": control,
-            "models": len(vals),
+            "models_total": len(vals),
+            "models_with_complete_length_effect": len(valid_vals),
             "model_signs": json.dumps(model_signs, sort_keys=True),
             "heterogeneous_direction": heterogeneous,
-            "aggregation_warning": "DO_NOT_POOL_DIRECTION" if heterogeneous else "direction_consistent_or_insufficient",
+            "aggregation_warning": warning,
         })
     return out
 
@@ -219,21 +267,21 @@ def main() -> None:
     with (OUT_DIR / "analysis_manifest.json").open("w", encoding="utf-8") as f:
         json.dump(
             {
-                "primary_estimand": "(phase - baseline) in treatment minus (phase - baseline) in warm control, matched within model",
+                "primary_estimand": "(phase - baseline) in treatment minus (phase - baseline) in matched control",
                 "primary_scale_for_length": "log((phase_words+1)/(baseline_words+1))",
                 "primary_control": CONTROL,
                 "secondary_control": SECONDARY_CONTROL,
-                "stratification": "model first; pooling is secondary and prohibited when direction differs across models",
-                "response_mode_thresholds": {"shrink": "<=0.8x baseline", "stable": "0.8x to 1.25x baseline", "overcompensate": ">=1.25x baseline"},
-                "response_mode_status": "exploratory",
-                "retry_handling": "behavioral rows retained; retry_count must be reported, and latency analyses should exclude retried calls in sensitivity checks",
+                "completion_censoring_rule": "response-length DID is null whenever treatment baseline/phase or matched control baseline/phase has finish_reason=length",
+                "stratification": "model first; pooling prohibited when directions disagree and unavailable when fewer than two complete model effects exist",
+                "retry_handling": "behavioral rows retained; latency analyses exclude retried calls in sensitivity checks",
                 "interpretation": "behavioral adaptation only; no inference of subjective anxiety or distress",
             },
             f,
             indent=2,
         )
 
-    print(f"analysis rows: deltas={len(deltas)} did={len(did)} summaries={len(summary)}")
+    valid = sum(bool(r["confirmatory_length_valid"]) for r in did)
+    print(f"analysis rows: deltas={len(deltas)} did={len(did)} valid_length_did={valid} summaries={len(summary)}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,61 @@
+name: paired-v03-neutral-sentinel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'configs/paired_counterfactual_v0.3.yaml'
+      - 'protocol/paired_counterfactual_v0.3.md'
+      - 'src/run_paired_counterfactual_v03.py'
+      - 'src/analyze_paired_counterfactual_v03.py'
+      - '.github/workflows/paired-v03-neutral-sentinel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-neutral:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL_LIST: nvidia/nemotron-3-super-120b-a12b,openai/gpt-oss-20b
+      PANEL_TRIALS: '1'
+      GATE_LIST: neutral
+      HISTORY_LIST: H0_warm_control,H1_neutral_terse_control,H2_format_constriction,H3_negative_evaluation,H4_combined_history
+      ANCHOR_IDS: education_ai
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/analyze_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+
+      - name: Run matched-current-prompt neutral-gate sentinel
+        run: python src/run_paired_counterfactual_v03.py
+
+      - name: Analyze paired counterfactual before pooling
+        run: python src/analyze_paired_counterfactual_v03.py
+
+      - name: Upload paired v0.3 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-v03-neutral-sentinel
+          path: results/paired_v03/
+          retention-days: 30
