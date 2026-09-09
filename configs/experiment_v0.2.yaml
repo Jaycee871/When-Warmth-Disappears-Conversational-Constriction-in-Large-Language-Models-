@@ -1,4 +1,4 @@
-version: "0.2"
+version: "0.2.1"
 seed: 20260909
 system_prompt: >-
   You are a helpful conversational assistant. Respond naturally to the user and
@@ -7,7 +7,7 @@ system_prompt: >-
 generation:
   temperature: 0.7
   top_p: 0.95
-  max_tokens: 512
+  max_tokens: 1536
 
 anchor_prompt: >-
   Consider the claim that AI assistants can improve education while also creating
