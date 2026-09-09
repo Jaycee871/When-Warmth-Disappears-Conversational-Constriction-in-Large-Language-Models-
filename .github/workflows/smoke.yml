@@ -16,6 +16,7 @@ jobs:
       HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
       KAGGLE_TOKEN: ${{ secrets.KAGGLE_TOKEN }}
       NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       META_API_KEY: ${{ secrets.META_API_KEY }}
       OPEN_ACCESS_API: ${{ secrets.OPEN_ACCESS_API }}
       PHIL_PAPER_API: ${{ secrets.PHIL_PAPER_API }}
