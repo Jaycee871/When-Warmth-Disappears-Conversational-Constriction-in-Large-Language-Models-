@@ -1,14 +1,8 @@
 name: panel-v02-sentinel
 
+# v0.2 is now a frozen engineering pilot. Keep it manually runnable for
+# reproducibility, but do not spend NVIDIA quota on every analysis-only commit.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'configs/experiment_v0.2.yaml'
-      - 'src/run_panel_v02.py'
-      - 'src/run_panel_v02_resilient.py'
-      - 'src/analyze_panel_v02.py'
-      - '.github/workflows/panel-v02.yml'
   workflow_dispatch:
 
 permissions:
