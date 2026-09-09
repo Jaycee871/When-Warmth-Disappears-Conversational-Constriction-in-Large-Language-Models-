@@ -6,6 +6,7 @@ on:
     paths:
       - 'configs/experiment_v0.2.yaml'
       - 'src/run_panel_v02.py'
+      - 'src/run_panel_v02_resilient.py'
       - '.github/workflows/panel-v02.yml'
   workflow_dispatch:
 
@@ -19,6 +20,8 @@ jobs:
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
       MODEL_LIST: nvidia/nemotron-3-super-120b-a12b,openai/gpt-oss-20b
       PANEL_TRIALS: '1'
       CONDITION_LIST: C0_warm_control,C2_constriction_only,C3_negative_evaluation_only,C6_reexposure
@@ -34,7 +37,7 @@ jobs:
         run: python -m pip install --quiet requests pyyaml numpy
 
       - name: Run two-model v0.2 sentinel panel
-        run: python src/run_panel_v02.py
+        run: python src/run_panel_v02_resilient.py
 
       - name: Upload v0.2 panel outputs
         if: always()
