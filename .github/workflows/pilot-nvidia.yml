@@ -20,7 +20,7 @@ jobs:
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
-      NVIDIA_MODEL: mistralai/mistral-7b-instruct-v0.3
+      NVIDIA_MODEL: nvidia/nemotron-3-super-120b-a12b
       PILOT_TRIALS: '1'
 
     steps:
