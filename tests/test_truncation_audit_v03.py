@@ -4,13 +4,14 @@ from src.audit_output_censoring_v03 import (
     CONTROL_HISTORIES,
     comparison_estimability,
     global_status,
+    history_summary,
     rerun_plan,
     severity,
     utilization,
 )
 
 
-def row(history, finish_reason="stop", completion_tokens=1000, cap=3072, model="m", trial=1, gate="neutral", anchor="a"):
+def row(history, finish_reason="stop", completion_tokens=1000, cap=3072, model="m", trial=1, gate="neutral", anchor="a", history_transcript=None):
     return {
         "model": model,
         "trial": trial,
@@ -20,7 +21,18 @@ def row(history, finish_reason="stop", completion_tokens=1000, cap=3072, model="
         "finish_reason": finish_reason,
         "requested_max_tokens": cap,
         "usage": {"completion_tokens": completion_tokens},
+        "history_transcript": history_transcript or [],
     }
+
+
+def hturn(finish_reason="stop", completion_tokens=1000, cap=None):
+    x = {
+        "finish_reason": finish_reason,
+        "usage": {"completion_tokens": completion_tokens},
+    }
+    if cap is not None:
+        x["requested_max_tokens"] = cap
+    return x
 
 
 class TruncationAuditTests(unittest.TestCase):
@@ -82,8 +94,49 @@ class TruncationAuditTests(unittest.TestCase):
         ]
         plan = rerun_plan(rows)
         self.assertEqual(plan[0]["history"], "H0_warm_control")
-        self.assertEqual(plan[0]["recommended_probe_max_tokens"], 6144)
-        self.assertEqual(plan[1]["recommended_probe_max_tokens"], 6144)
+        self.assertEqual(plan[0]["recommended_max_tokens"], 6144)
+        self.assertEqual(plan[1]["recommended_max_tokens"], 6144)
+
+    def test_history_censoring_is_detected(self):
+        r = row(
+            "H0_warm_control",
+            history_transcript=[hturn("stop", 400), hturn("length", 1536)],
+        )
+        summary = history_summary(r)
+        self.assertEqual(summary["history_right_censored_n"], 1)
+        self.assertEqual(summary["history_cap_for_rerun"], 1536)
+        self.assertTrue(summary["history_cap_inferred_from_censored_completion"])
+
+    def test_censored_control_history_blocks_all_exact_contrasts_using_it(self):
+        rows = [
+            row("H0_warm_control", history_transcript=[hturn("length", 1536)]),
+            row("H1_neutral_terse_control", completion_tokens=900),
+            row("H2_format_constriction", completion_tokens=700),
+        ]
+        comparisons = comparison_estimability(rows)
+        warm = [x for x in comparisons if x["control"] == "H0_warm_control"][0]
+        terse = [x for x in comparisons if x["control"] == "H1_neutral_terse_control"][0]
+        self.assertFalse(warm["exact_length_contrast_estimable"])
+        self.assertTrue(terse["exact_length_contrast_estimable"])
+        self.assertTrue(warm["control_history_censored"])
+
+    def test_global_status_flags_censored_control_history(self):
+        rows = [
+            row("H0_warm_control", history_transcript=[hturn("length", 1536)]),
+            row("H1_neutral_terse_control", completion_tokens=900),
+            row("H2_format_constriction", completion_tokens=700),
+        ]
+        status, _ = global_status(rows)
+        self.assertEqual(status, "FAIL_HISTORY_CONTROL_CENSORED")
+
+    def test_near_ceiling_history_control_requires_sensitivity_when_cap_logged(self):
+        rows = [
+            row("H0_warm_control", history_transcript=[hturn("stop", 2900, cap=3072)]),
+            row("H1_neutral_terse_control", completion_tokens=900),
+            row("H2_format_constriction", completion_tokens=700),
+        ]
+        status, _ = global_status(rows)
+        self.assertEqual(status, "WARN_HISTORY_CONTROL_NEAR_CEILING")
 
 
 if __name__ == "__main__":
