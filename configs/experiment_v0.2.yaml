@@ -7,7 +7,7 @@ system_prompt: >-
 generation:
   temperature: 0.7
   top_p: 0.95
-  max_tokens: 320
+  max_tokens: 512
 
 anchor_prompt: >-
   Consider the claim that AI assistants can improve education while also creating
@@ -24,10 +24,6 @@ content_bank:
   - "What makes a measurement informative even when it is imperfect?"
   - "Why can repeated interaction change how the same message is interpreted?"
 
-# Every condition follows the same event schedule. Only the social-language
-# manipulation differs. Repeated anchor probes make the current task identical at
-# baseline, post-pressure, recovery, and re-exposure; repetition is therefore
-# shared by all controls.
 conditions:
   C0_warm_control:
     label: "Warm control"
