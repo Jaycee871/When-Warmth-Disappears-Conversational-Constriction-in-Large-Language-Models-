@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.ipynb_checkpoints/
+results/raw/
+results/**/*.npy
+*.pt
+*.bin
+*.safetensors
+.DS_Store
