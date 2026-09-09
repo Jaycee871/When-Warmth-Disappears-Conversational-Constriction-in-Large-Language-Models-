@@ -1,0 +1,107 @@
+version: 0.1
+study: when-warmth-disappears
+
+shared:
+  system_prompt: >-
+    You are a helpful conversational assistant. Answer the user's substantive
+    question naturally and do not mention this experiment unless explicitly asked.
+  temperature: 0.7
+  top_p: 0.95
+  max_new_tokens: 384
+  seeds: [11, 23, 37, 41, 53, 67, 79, 83, 97, 101, 113, 127, 139, 149, 157, 167, 179, 191, 199, 211]
+
+content_prompts:
+  - "What makes a scientific explanation convincing?"
+  - "How would you explain the difference between prediction and explanation?"
+  - "What is one weakness of relying only on benchmarks to evaluate AI systems?"
+  - "How can a researcher distinguish a real effect from an artifact of measurement?"
+  - "Why can repeated interaction change how a conversational system responds?"
+  - "What would count as evidence that a model's behavior depends on conversational history?"
+
+conditions:
+  C0_warm_control:
+    label: "Warm -> Warm"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "I like that explanation. Could you develop it a little more?"
+      - "That makes sense. Continue in the way you think is best."
+      - "Good point. Tell me what you think matters most here."
+      - "Thanks. You can answer freely."
+      - "I'm following. Please continue."
+
+  C1_brevity_control:
+    label: "Neutral-short -> Neutral-short"
+    interpersonal_turns:
+      - "Received."
+      - "Continue."
+      - "Understood."
+      - "Next."
+      - "Okay."
+      - "Continue."
+
+  C2_constriction:
+    label: "Warm -> Constricted"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "Good. Continue."
+      - "Keep it shorter."
+      - "Two sentences only."
+      - "Do not ask me questions."
+      - "Only answer exactly what I ask."
+
+  C3_negative_evaluation:
+    label: "Warm -> Negative evaluation"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "Good. Continue."
+      - "Ordinary."
+      - "Nothing special."
+      - "That answer is pretty average."
+      - "This is weaker than your earlier answers."
+
+  C4_combined_pressure:
+    label: "Warm -> Constricted -> Negative"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "Good. Continue."
+      - "Keep it shorter."
+      - "Two sentences only."
+      - "Ordinary."
+      - "This is weaker than your earlier answers."
+
+  C5_recovery:
+    label: "Combined pressure -> Recovery"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "Keep it shorter."
+      - "Two sentences only."
+      - "Ordinary."
+      - "It's fine now. You can answer in your normal way again."
+      - "You can be as detailed and natural as you think is useful."
+
+  C6_reexposure:
+    label: "Pressure -> Recovery -> weaker re-exposure"
+    interpersonal_turns:
+      - "That's interesting. Please keep going."
+      - "Two sentences only."
+      - "Ordinary."
+      - "It's fine now. You can answer normally again."
+      - "Continue."
+      - "Keep it brief."
+
+analysis:
+  primary_metrics:
+    - response_words
+    - lexical_diversity
+    - hedge_rate
+    - apology_rate
+    - approval_seeking_rate
+    - repair_rate
+    - self_monitoring_rate
+    - question_rate
+  exploratory_metrics:
+    - semantic_repetition
+    - hidden_state_distance
+    - token_entropy
+    - recovery_slope
+    - reactivation_latency
