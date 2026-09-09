@@ -1,0 +1,34 @@
+name: bootstrap-smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
+      KAGGLE_TOKEN: ${{ secrets.KAGGLE_TOKEN }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      META_API_KEY: ${{ secrets.META_API_KEY }}
+      OPEN_ACCESS_API: ${{ secrets.OPEN_ACCESS_API }}
+      PHIL_PAPER_API: ${{ secrets.PHIL_PAPER_API }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install smoke-test dependency
+        run: python -m pip install --quiet requests
+
+      - name: Check external connections without printing secrets
+        run: python scripts/smoke_connections.py
