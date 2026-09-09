@@ -33,6 +33,20 @@ This treats proportional contraction and expansion more symmetrically than raw w
 
 Negative values indicate contraction relative to baseline. Positive values indicate expansion. The confirmatory quantity is the control-subtracted value, not the raw log ratio.
 
+## Completion-budget and truncation guard
+
+The first completed v0.2 sentinel panel revealed that 27 of 32 repeated-anchor responses ended with `finish_reason=length` at a 512-token completion budget. This means visible response length can be partly determined by the generation ceiling and, for reasoning-capable models, by how completion tokens are allocated between internal reasoning and visible answer text.
+
+Accordingly:
+
+- v0.2.1 raises `max_tokens` to 1536 for the sentinel rerun;
+- anchor-level response-length claims require inspection of `finish_reason` and completion-token usage first;
+- capped responses are flagged and must be included in a truncation sensitivity analysis;
+- a direction seen only among capped responses is not treated as a robust behavioral effect;
+- completion-token use and visible-word count are reported separately.
+
+The earlier 512-token run remains an engineering pilot rather than confirmatory evidence.
+
 ## Secondary anchor outcomes
 
 The same baseline-minus-control logic is applied to:
@@ -70,7 +84,7 @@ This is intended to prevent aggregate summaries from masking opposite model-spec
 
 Transient endpoint failures do not advance the conversation. A retry resends the identical message history and does not insert, remove, or modify a turn.
 
-Every successful call after a transient failure should record retry_count and the transient status/error history. Behavioral outputs may remain in the descriptive dataset, but:
+Every successful call after a transient failure records `retry_count`, retry event history, retry wait time, and total wall latency. Behavioral outputs may remain in the descriptive dataset, but:
 
 - latency analyses should exclude retried calls in sensitivity checks;
 - retry incidence should be reported by model and condition;
@@ -80,7 +94,7 @@ Every successful call after a transient failure should record retry_count and th
 
 The fixed analysis order is:
 
-1. run integrity and retry incidence;
+1. run integrity, finish reasons, completion ceilings, and retry incidence;
 2. repeated-anchor trajectories by model and condition;
 3. within-run baseline drift;
 4. control-subtracted drift (difference-in-differences);
