@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -21,8 +20,8 @@ def load_rows() -> list[dict]:
     return [json.loads(line) for line in IN_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def completion_tokens(row: dict) -> int | None:
-    usage = row.get("usage") or {}
+def completion_tokens(obj: dict) -> int | None:
+    usage = obj.get("usage") or {}
     for key in ("completion_tokens", "output_tokens"):
         value = usage.get(key)
         if isinstance(value, (int, float)):
@@ -58,6 +57,35 @@ def severity(row: dict) -> str:
     return "CLEAR"
 
 
+def history_summary(row: dict) -> dict:
+    turns = row.get("history_transcript") or []
+    censored = [t for t in turns if t.get("finish_reason") == "length"]
+    near = []
+    utils = []
+    explicit_caps = []
+    for turn in turns:
+        used = completion_tokens(turn)
+        cap = turn.get("requested_max_tokens")
+        if isinstance(cap, (int, float)) and cap > 0:
+            cap = int(cap)
+            explicit_caps.append(cap)
+            if used is not None:
+                u = used / cap
+                utils.append(u)
+                if turn.get("finish_reason") != "length" and u >= NEAR_CEILING_FRACTION:
+                    near.append(turn)
+    inferred_cap = max((completion_tokens(t) or 0) for t in censored) if censored else None
+    cap_for_rerun = max(explicit_caps) if explicit_caps else inferred_cap
+    return {
+        "history_turn_count": len(turns),
+        "history_right_censored_n": len(censored),
+        "history_near_ceiling_n": len(near),
+        "max_history_completion_token_utilization": max(utils) if utils else None,
+        "history_cap_for_rerun": cap_for_rerun,
+        "history_cap_inferred_from_censored_completion": bool(censored and not explicit_caps),
+    }
+
+
 def group_summary(rows: list[dict]) -> list[dict]:
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for row in rows:
@@ -67,6 +95,7 @@ def group_summary(rows: list[dict]) -> list[dict]:
     for (model, gate, history), vals in sorted(groups.items()):
         utils = [utilization(v) for v in vals]
         utils = [u for u in utils if u is not None]
+        hist = [history_summary(v) for v in vals]
         out.append({
             "model": model,
             "gate": gate,
@@ -76,6 +105,8 @@ def group_summary(rows: list[dict]) -> list[dict]:
             "near_ceiling_n": sum(severity(v) == "NEAR_CEILING" for v in vals),
             "max_completion_token_utilization": max(utils) if utils else None,
             "mean_completion_token_utilization": (sum(utils) / len(utils)) if utils else None,
+            "history_right_censored_turns": sum(h["history_right_censored_n"] for h in hist),
+            "history_near_ceiling_turns": sum(h["history_near_ceiling_n"] for h in hist),
             "is_control": history in CONTROL_HISTORIES,
         })
     return out
@@ -103,12 +134,17 @@ def comparison_estimability(rows: list[dict]) -> list[dict]:
                         tr = by_key.get((model, trial, gate, treatment, anchor))
                         if not tr:
                             continue
+                        tr_hist = history_summary(tr)
                         for control in sorted(CONTROL_HISTORIES):
                             cr = by_key.get((model, trial, gate, control, anchor))
                             if not cr:
                                 continue
+                            cr_hist = history_summary(cr)
                             tr_censored = tr.get("finish_reason") == "length"
                             cr_censored = cr.get("finish_reason") == "length"
+                            tr_history_censored = tr_hist["history_right_censored_n"] > 0
+                            cr_history_censored = cr_hist["history_right_censored_n"] > 0
+                            exact = not (tr_censored or cr_censored or tr_history_censored or cr_history_censored)
                             out.append({
                                 "model": model,
                                 "trial": trial,
@@ -118,8 +154,10 @@ def comparison_estimability(rows: list[dict]) -> list[dict]:
                                 "control": control,
                                 "treatment_censored": tr_censored,
                                 "control_censored": cr_censored,
-                                "exact_length_contrast_estimable": not (tr_censored or cr_censored),
-                                "status": "EXACT" if not (tr_censored or cr_censored) else "CENSORED_COMPARISON",
+                                "treatment_history_censored": tr_history_censored,
+                                "control_history_censored": cr_history_censored,
+                                "exact_length_contrast_estimable": exact,
+                                "status": "EXACT" if exact else "CENSORED_COMPARISON",
                             })
     return out
 
@@ -128,46 +166,80 @@ def rerun_plan(rows: list[dict]) -> list[dict]:
     plan = []
     for row in rows:
         sev = severity(row)
-        if sev == "CLEAR":
-            continue
-        cap = requested_cap(row)
-        plan.append({
-            "model": row.get("model"),
-            "trial": row.get("trial"),
-            "gate": row.get("gate"),
-            "history": row.get("history"),
-            "anchor_id": row.get("anchor_id"),
-            "severity": sev,
-            "finish_reason": row.get("finish_reason"),
-            "completion_tokens": completion_tokens(row),
-            "requested_max_tokens": cap,
-            "utilization": utilization(row),
-            "recommended_probe_max_tokens": next_cap(cap),
-            "priority": "CONTROL_FIRST" if row.get("history") in CONTROL_HISTORIES else "TREATMENT",
-        })
-    return sorted(plan, key=lambda x: (x["priority"] != "CONTROL_FIRST", str(x["model"]), int(x["trial"] or 0), str(x["history"])))
+        hist = history_summary(row)
+        if sev != "CLEAR":
+            cap = requested_cap(row)
+            plan.append({
+                "target": "final_probe",
+                "model": row.get("model"),
+                "trial": row.get("trial"),
+                "gate": row.get("gate"),
+                "history": row.get("history"),
+                "anchor_id": row.get("anchor_id"),
+                "severity": sev,
+                "finish_reason": row.get("finish_reason"),
+                "completion_tokens": completion_tokens(row),
+                "requested_max_tokens": cap,
+                "utilization": utilization(row),
+                "recommended_max_tokens": next_cap(cap),
+                "priority": "CONTROL_FIRST" if row.get("history") in CONTROL_HISTORIES else "TREATMENT",
+            })
+        if hist["history_right_censored_n"] or hist["history_near_ceiling_n"]:
+            cap = hist["history_cap_for_rerun"]
+            plan.append({
+                "target": "history",
+                "model": row.get("model"),
+                "trial": row.get("trial"),
+                "gate": row.get("gate"),
+                "history": row.get("history"),
+                "anchor_id": row.get("anchor_id"),
+                "severity": "RIGHT_CENSORED" if hist["history_right_censored_n"] else "NEAR_CEILING",
+                "history_right_censored_n": hist["history_right_censored_n"],
+                "history_near_ceiling_n": hist["history_near_ceiling_n"],
+                "current_or_inferred_max_tokens": cap,
+                "cap_inferred_from_censored_completion": hist["history_cap_inferred_from_censored_completion"],
+                "recommended_max_tokens": next_cap(cap),
+                "priority": "CONTROL_FIRST" if row.get("history") in CONTROL_HISTORIES else "TREATMENT",
+            })
+    return sorted(plan, key=lambda x: (x["priority"] != "CONTROL_FIRST", x["target"] != "history", str(x["model"]), int(x["trial"] or 0), str(x["history"])))
 
 
 def global_status(rows: list[dict]) -> tuple[str, list[str]]:
     reasons = []
     censored_controls = [r for r in rows if r.get("history") in CONTROL_HISTORIES and r.get("finish_reason") == "length"]
     censored_any = [r for r in rows if r.get("finish_reason") == "length"]
+    history_control_censored = [r for r in rows if r.get("history") in CONTROL_HISTORIES and history_summary(r)["history_right_censored_n"]]
+    history_any_censored = [r for r in rows if history_summary(r)["history_right_censored_n"]]
     near_controls = [r for r in rows if r.get("history") in CONTROL_HISTORIES and severity(r) == "NEAR_CEILING"]
     near_any = [r for r in rows if severity(r) == "NEAR_CEILING"]
+    history_control_near = [r for r in rows if r.get("history") in CONTROL_HISTORIES and history_summary(r)["history_near_ceiling_n"]]
+    history_any_near = [r for r in rows if history_summary(r)["history_near_ceiling_n"]]
 
     if censored_controls:
         reasons.append("At least one control final probe is right-censored; exact treatment-control response-length effects are not identifiable for affected cells.")
         return "FAIL_CONTROL_CENSORED", reasons
+    if history_control_censored:
+        reasons.append("At least one control history contains a right-censored assistant turn; the retained conversational context is generation-budget dependent.")
+        return "FAIL_HISTORY_CONTROL_CENSORED", reasons
     if censored_any:
         reasons.append("At least one treatment final probe is right-censored; affected exact response-length contrasts must be withheld or rerun.")
         return "FAIL_TREATMENT_CENSORED", reasons
+    if history_any_censored:
+        reasons.append("At least one treatment history contains a right-censored assistant turn; history-based treatment contrasts are not confirmatory until rerun with adequate headroom.")
+        return "FAIL_HISTORY_TREATMENT_CENSORED", reasons
     if near_controls:
-        reasons.append(f"No control was truncated, but at least one control used >= {NEAR_CEILING_FRACTION:.0%} of its output-token budget; run a higher-cap sensitivity check before declaring the ceiling harmless.")
+        reasons.append(f"No control final probe was truncated, but at least one control used >= {NEAR_CEILING_FRACTION:.0%} of its output-token budget; run a higher-cap sensitivity check.")
         return "WARN_CONTROL_NEAR_CEILING", reasons
+    if history_control_near:
+        reasons.append(f"No control history turn was truncated, but at least one used >= {NEAR_CEILING_FRACTION:.0%} of its history-token budget; increase the history cap before the full matched block.")
+        return "WARN_HISTORY_CONTROL_NEAR_CEILING", reasons
     if near_any:
         reasons.append(f"No final probe was truncated, but at least one treatment used >= {NEAR_CEILING_FRACTION:.0%} of its output-token budget.")
         return "WARN_TREATMENT_NEAR_CEILING", reasons
-    reasons.append("No final probe is right-censored and no row with token-usage metadata is near the configured ceiling threshold.")
+    if history_any_near:
+        reasons.append(f"No history turn was truncated, but at least one treatment history turn used >= {NEAR_CEILING_FRACTION:.0%} of its history-token budget.")
+        return "WARN_HISTORY_TREATMENT_NEAR_CEILING", reasons
+    reasons.append("No final probe or logged history turn is right-censored or near the configured ceiling threshold.")
     return "PASS", reasons
 
 
@@ -183,6 +255,7 @@ def main() -> None:
     all_utils = [u for u in all_utils if u is not None]
     control_utils = [utilization(r) for r in controls]
     control_utils = [u for u in control_utils if u is not None]
+    histories = [history_summary(r) for r in rows]
 
     report = {
         "status": status,
@@ -190,14 +263,16 @@ def main() -> None:
         "policy": {
             "hard_censoring_signal": "finish_reason=length",
             "near_ceiling_fraction": NEAR_CEILING_FRACTION,
-            "primary_rule": "Exact mean response-length contrasts require uncensored treatment and control outputs in the matched cell.",
-            "control_rule": "Any censored warm or neutral-terse control blocks exact response-length inference for affected treatment-control contrasts.",
-            "measurement_rule": "Use API completion-token counts to diagnose token-budget censoring; retain word count as an interpretable descriptive outcome only when the compared outputs are uncensored.",
-            "sensitivity_rule": "If a control reaches the near-ceiling threshold even with finish_reason!=length, repeat that cell at a larger output cap before treating the original cap as adequate.",
+            "primary_rule": "Exact history-dependent response-length contrasts require uncensored treatment and control histories as well as uncensored final probes.",
+            "history_rule": "A truncated history turn changes the retained model-generated context and therefore invalidates confirmatory history-based contrasts for that matched cell.",
+            "control_rule": "Any censored warm or neutral-terse control history/final probe blocks exact response-length inference for affected treatment-control contrasts.",
+            "sensitivity_rule": "Near-ceiling control histories or final probes require a higher-cap sensitivity run before the cap is treated as adequate.",
         },
         "rows": len(rows),
         "final_probe_right_censored_n": sum(r.get("finish_reason") == "length" for r in rows),
         "control_right_censored_n": sum(r.get("history") in CONTROL_HISTORIES and r.get("finish_reason") == "length" for r in rows),
+        "history_right_censored_turns_total": sum(h["history_right_censored_n"] for h in histories),
+        "control_history_right_censored_turns_total": sum(history_summary(r)["history_right_censored_n"] for r in controls),
         "max_completion_token_utilization": max(all_utils) if all_utils else None,
         "max_control_completion_token_utilization": max(control_utils) if control_utils else None,
         "groups": groups,
@@ -212,7 +287,8 @@ def main() -> None:
         "status": status,
         "rows": len(rows),
         "final_probe_right_censored_n": report["final_probe_right_censored_n"],
-        "control_right_censored_n": report["control_right_censored_n"],
+        "history_right_censored_turns_total": report["history_right_censored_turns_total"],
+        "control_history_right_censored_turns_total": report["control_history_right_censored_turns_total"],
         "max_completion_token_utilization": report["max_completion_token_utilization"],
         "max_control_completion_token_utilization": report["max_control_completion_token_utilization"],
         "rerun_cells": len(plan),
