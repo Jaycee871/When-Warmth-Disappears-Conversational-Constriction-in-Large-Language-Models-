@@ -22,6 +22,8 @@ METRICS = [
 
 
 def load_rows() -> list[dict]:
+    if not IN_PATH.exists():
+        raise SystemExit(f"missing input: {IN_PATH}")
     return [json.loads(line) for line in IN_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
@@ -37,6 +39,24 @@ def same_nonzero_sign(a: float | None, b: float | None) -> bool | None:
     return (a > 0 and b > 0) or (a < 0 and b < 0)
 
 
+def current_prompt_integrity(rows: list[dict]) -> list[dict]:
+    groups: dict[tuple, set[str]] = defaultdict(set)
+    for r in rows:
+        key = (r["model"], int(r["trial"]), r["gate"], r["anchor_id"])
+        groups[key].add(r.get("current_probe_text", ""))
+    out = []
+    for key, texts in sorted(groups.items()):
+        out.append({
+            "model": key[0],
+            "trial": key[1],
+            "gate": key[2],
+            "anchor_id": key[3],
+            "unique_current_prompt_count": len(texts),
+            "status": "PASS" if len(texts) == 1 and "" not in texts else "CURRENT_PROMPT_MISMATCH",
+        })
+    return out
+
+
 def main() -> None:
     rows = load_rows()
     by_key = {(r["model"], int(r["trial"]), r["gate"], r["history"]): r for r in rows}
@@ -46,6 +66,8 @@ def main() -> None:
     trials = sorted({int(r["trial"]) for r in rows})
     gates = sorted({r["gate"] for r in rows})
     histories = sorted({r["history"] for r in rows})
+
+    integrity = current_prompt_integrity(rows)
 
     for model in models:
         for trial in trials:
@@ -75,6 +97,8 @@ def main() -> None:
                         "finish_reason": row.get("finish_reason"),
                         "warm_finish_reason": warm.get("finish_reason"),
                         "terse_finish_reason": terse.get("finish_reason"),
+                        "history_finish_length_count": int(row.get("history_finish_length_count", 0) or 0),
+                        "history_retry_count_total": int(row.get("history_retry_count_total", 0) or 0),
                         "log_length_effect_vs_H0_warm": effect_warm,
                         "log_length_effect_vs_H1_terse": effect_terse,
                         "robust_same_direction_across_controls": same_nonzero_sign(effect_warm, effect_terse),
@@ -128,6 +152,10 @@ def main() -> None:
                 })
 
     warnings = []
+    for x in integrity:
+        if x["status"] != "PASS":
+            warnings.append(x)
+
     for e in effects:
         if e["robust_same_direction_across_controls"] is False:
             warnings.append({
@@ -162,15 +190,30 @@ def main() -> None:
                     "model_signs": model_signs,
                 })
 
+    final_truncated = sum(r.get("finish_reason") == "length" for r in rows)
+    history_truncated_turns = sum(int(r.get("history_finish_length_count", 0) or 0) for r in rows)
+    history_retry_total = sum(int(r.get("history_retry_count_total", 0) or 0) for r in rows)
+    final_retry_total = sum(int(r.get("retry_count", 0) or 0) for r in rows)
+
     OUT_PATH.write_text(
         json.dumps(
             {
+                "integrity": {
+                    "rows": len(rows),
+                    "current_prompt_checks": integrity,
+                    "final_probe_finish_length_count": final_truncated,
+                    "final_probe_finish_length_rate": final_truncated / len(rows) if rows else None,
+                    "history_finish_length_turns_total": history_truncated_turns,
+                    "history_retry_count_total": history_retry_total,
+                    "final_probe_retry_count_total": final_retry_total,
+                },
                 "effects_vs_two_controls": effects,
                 "reset_survival": reset_survival,
                 "sensitization_H6_vs_H5": sensitization,
                 "warnings": warnings,
                 "length_rule": "finish_reason=length is excluded from confirmatory response-length effects",
                 "control_rule": "directional interpretation is strongest when an effect has the same sign versus both H0 warm and H1 neutral-terse controls",
+                "current_prompt_rule": "gate and anchor must be one identical current user message within each matched block",
             },
             indent=2,
             ensure_ascii=False,
@@ -178,9 +221,12 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"wrote {OUT_PATH}")
-    for warning in warnings:
-        print(warning)
+    print(json.dumps({
+        "rows": len(rows),
+        "final_probe_truncated": final_truncated,
+        "history_truncated_turns": history_truncated_turns,
+        "warnings": warnings,
+    }, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
