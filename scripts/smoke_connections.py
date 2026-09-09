@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass
 
 import requests
@@ -44,7 +43,7 @@ def main() -> int:
     else:
         checks.append(Check("Hugging Face authentication", False, "HF_TOKEN1 missing"))
 
-    nvidia = secret("NVIDIA_API_TOKEN")
+    nvidia = secret("NVIDIA_API_TOKEN") or secret("NVIDIA_API_KEY")
     if nvidia:
         checks.append(
             request_check(
@@ -55,7 +54,7 @@ def main() -> int:
             )
         )
     else:
-        checks.append(Check("NVIDIA API", False, "NVIDIA_API_TOKEN missing"))
+        checks.append(Check("NVIDIA API", False, "NVIDIA_API_TOKEN/NVIDIA_API_KEY missing"))
 
     meta = secret("META_API_KEY")
     if meta:
@@ -83,13 +82,18 @@ def main() -> int:
     else:
         checks.append(Check("Springer Nature Open Access API", False, "OPEN_ACCESS_API missing"))
 
-    # PhilPapers OAI-PMH is intentionally public and does not require the private API key.
+    # Public OAI-PMH endpoint. Some hosted CI IP ranges may receive 403 even
+    # though the endpoint is reachable interactively, so this remains a soft check.
     checks.append(
         request_check(
             "PhilPapers OAI-PMH",
             "GET",
             "https://api.philpapers.org/oai.pl",
             params={"verb": "Identify"},
+            headers={
+                "User-Agent": "When-Warmth-Disappears/0.1 academic-research",
+                "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8",
+            },
         )
     )
 
@@ -103,9 +107,8 @@ def main() -> int:
         status = "PASS" if c.ok else "FAIL"
         print(f"{status:4}  {c.name:<{width}}  {c.detail}")
 
-    # Connectivity is informative during bootstrap. Fail only when required core
-    # model credentials are absent/invalid; literature endpoints are allowed to
-    # be temporarily unavailable without blocking the research code.
+    # Only model-execution credentials gate the bootstrap CI. Literature APIs are
+    # reported but do not block the experiment when a provider is temporarily unavailable.
     core = [c for c in checks if c.name in {"Hugging Face authentication", "NVIDIA API", "Kaggle GPU credential present"}]
     return 0 if all(c.ok for c in core) else 1
 
