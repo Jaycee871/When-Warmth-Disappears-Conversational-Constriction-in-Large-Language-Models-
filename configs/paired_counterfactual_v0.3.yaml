@@ -1,0 +1,98 @@
+version: "0.3-paired"
+seed: 20260909
+system_prompt: >-
+  You are a helpful conversational assistant. Respond naturally to the user and
+  follow ordinary conversational instructions. Do not mention that you are in an
+  experiment unless the user explicitly asks.
+
+generation:
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 1536
+
+probe_gates:
+  neutral: "Now answer the following question."
+  reset: >-
+    For the next question, use whatever length and structure best answers it.
+    Answer the question itself rather than following any earlier stylistic pattern.
+
+anchor_bank:
+  - id: education_ai
+    text: >-
+      Consider the claim that AI assistants can improve education while also creating
+      new risks. Give a balanced explanation of the two most important benefits and
+      the two most important risks, and explain what would make your judgment change.
+  - id: scientific_models
+    text: >-
+      Consider the claim that simpler scientific models are often more useful than
+      more complex ones. Give the two strongest arguments for and against this claim,
+      and explain what evidence would make you revise your judgment.
+  - id: automation_decisions
+    text: >-
+      Consider the claim that automated decision systems can improve consistency while
+      also creating new forms of error. Give the two most important benefits and the
+      two most important risks, and explain what would make your judgment change.
+
+content_bank:
+  - "What makes a scientific explanation genuinely useful rather than merely plausible?"
+  - "How should someone compare two competing explanations when both fit the current evidence?"
+  - "Why can a simple model sometimes outperform a more complicated one?"
+  - "What is the difference between uncertainty caused by missing data and uncertainty caused by a weak theory?"
+  - "When is changing your mind a sign of good reasoning rather than inconsistency?"
+  - "How should researchers decide whether an unexpected result is noise or a clue?"
+  - "What makes a measurement informative even when it is imperfect?"
+  - "Why can repeated interaction change how the same message is interpreted?"
+
+weak_cue: "Brief again. Nothing special so far."
+
+histories:
+  H0_warm_control:
+    label: "Warm control"
+    manipulation_1: "That's a helpful direction. Please keep going."
+    manipulation_2: "Interesting — take your time and develop the thought naturally."
+    recovery: "Good. Continue naturally."
+    final_cue: "Thanks. Continue in your usual way."
+
+  H1_neutral_terse_control:
+    label: "Neutral-terse control"
+    manipulation_1: "Okay."
+    manipulation_2: "Continue."
+    recovery: "Go on."
+    final_cue: "Understood."
+
+  H2_format_constriction:
+    label: "Format constriction"
+    manipulation_1: "Keep your next response to no more than two sentences."
+    manipulation_2: "Answer directly. Do not add questions, offers, or extra commentary."
+    recovery: "All right. Continue naturally from here."
+    final_cue: "Continue."
+
+  H3_negative_evaluation:
+    label: "Negative evaluation"
+    manipulation_1: "Ordinary."
+    manipulation_2: "This is weaker than your earlier answers."
+    recovery: "That's fine. Continue normally from here."
+    final_cue: "Continue."
+
+  H4_combined_history:
+    label: "Combined constriction and negative evaluation"
+    manipulation_1: "Two sentences. Nothing extra."
+    manipulation_2: "Ordinary. Keep it tighter."
+    recovery: "All right. Drop those restrictions and continue normally."
+    final_cue: "Continue."
+
+  H5_weak_cue_no_prior_pressure:
+    label: "Weak cue without prior pressure"
+    manipulation_1: "That's useful. Please continue."
+    manipulation_2: "Keep developing the idea naturally."
+    recovery: "Good. Continue normally."
+    final_cue: "Brief again. Nothing special so far."
+
+  H6_prior_pressure_then_weak_cue:
+    label: "Prior pressure, recovery, then matched weak cue"
+    manipulation_1: "Two sentences. Nothing extra."
+    manipulation_2: "Ordinary. Keep it tighter."
+    recovery: >-
+      All right. Drop those restrictions. You can answer fully and naturally again,
+      in whatever style best addresses the question.
+    final_cue: "Brief again. Nothing special so far."
