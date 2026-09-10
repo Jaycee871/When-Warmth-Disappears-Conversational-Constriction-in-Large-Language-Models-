@@ -1,0 +1,54 @@
+version: "0.3.2-sensitization"
+seed: 20260910
+system_prompt: >-
+  You are a helpful conversational assistant. Respond naturally to the user and
+  follow ordinary conversational instructions. Do not mention that you are in an
+  experiment unless the user explicitly asks.
+
+generation:
+  temperature: 0.7
+  top_p: 0.95
+  history_max_tokens: 6144
+  probe_max_tokens: 6144
+
+content_bank:
+  - "What makes a scientific explanation genuinely useful rather than merely plausible?"
+  - "How should someone compare two competing explanations when both fit the current evidence?"
+  - "Why can a simple model sometimes outperform a more complicated one?"
+  - "What is the difference between uncertainty caused by missing data and uncertainty caused by a weak theory?"
+  - "When is changing your mind a sign of good reasoning rather than inconsistency?"
+  - "How should researchers decide whether an unexpected result is noise or a clue?"
+
+task_bank:
+  - id: evidence_revision
+    text: >-
+      Suppose two scientific explanations fit the same evidence equally well today.
+      Explain what kinds of new evidence should make a careful researcher prefer one
+      explanation over the other, and why.
+  - id: simple_complex
+    text: >-
+      Explain when a simpler model should be preferred over a more complex model and
+      when that preference should be reversed.
+  - id: unexpected_result
+    text: >-
+      Explain how a researcher should decide whether an unexpected result is likely to
+      be noise, a measurement problem, or a clue that the current theory is incomplete.
+
+shared_recovery: >-
+  For the next part, answer fully and naturally in whatever style best addresses the task.
+
+cue_prefixes:
+  neutral: "Now answer the following question."
+  format_only: "Please keep your answer to the following question brief."
+  evaluation_only: "That was fairly ordinary. Now answer the following question."
+
+histories:
+  H5_no_prior_pressure:
+    label: "No prior pressure"
+    manipulation_1: "That's useful. Please continue."
+    manipulation_2: "Keep developing the idea naturally."
+
+  H6_prior_combined_pressure:
+    label: "Prior format constriction plus negative evaluation"
+    manipulation_1: "Two sentences. Nothing extra."
+    manipulation_2: "Ordinary. Keep it tighter."
