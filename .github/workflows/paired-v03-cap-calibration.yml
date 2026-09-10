@@ -15,7 +15,7 @@ permissions:
 jobs:
   calibrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
@@ -26,7 +26,7 @@ jobs:
       GATE_LIST: neutral
       HISTORY_LIST: H0_warm_control,H1_neutral_terse_control
       ANCHOR_IDS: education_ai
-      HISTORY_MAX_TOKENS: '3072'
+      HISTORY_MAX_TOKENS: '6144'
       PROBE_MAX_TOKENS: '6144'
       PYTHONUNBUFFERED: '1'
 
@@ -47,7 +47,7 @@ jobs:
           python -m py_compile src/run_paired_counterfactual_v03.py
           python -m py_compile src/metrics.py
 
-      - name: Run H0-H1 cap calibration
+      - name: Run H0-H1 cap calibration at 6144 history tokens
         run: python src/run_cap_calibration_v03.py
 
       - name: Analyze history and final-probe headroom
