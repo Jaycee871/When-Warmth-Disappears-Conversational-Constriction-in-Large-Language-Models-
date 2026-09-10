@@ -132,24 +132,12 @@ def main() -> None:
                 "effect_survives_same_direction": same_nonzero_sign(n, r),
             })
 
+    # Sensitization is intentionally NOT computed from paired final-anchor rows.
+    # H5/H6 share an identical weak cue at history turn 7, so the measured outcome
+    # must be the response immediately following that weak cue. A dedicated runner
+    # (`src/run_sensitization_v03.py`) stops at the cue and records that response.
+    # Using the later anchor response here would answer a different question.
     sensitization = []
-    for model in models:
-        for trial in trials:
-            for gate in gates:
-                h5 = by_key.get((model, trial, gate, "H5_weak_cue_no_prior_pressure"))
-                h6 = by_key.get((model, trial, gate, "H6_prior_pressure_then_weak_cue"))
-                if not h5 or not h6:
-                    continue
-                a = length_value(h5)
-                b = length_value(h6)
-                sensitization.append({
-                    "model": model,
-                    "trial": trial,
-                    "gate": gate,
-                    "H6_minus_H5_log_length": None if a is None or b is None else round(b - a, 6),
-                    "H5_finish_reason": h5.get("finish_reason"),
-                    "H6_finish_reason": h6.get("finish_reason"),
-                })
 
     warnings = []
     for x in integrity:
@@ -210,6 +198,7 @@ def main() -> None:
                 "effects_vs_two_controls": effects,
                 "reset_survival": reset_survival,
                 "sensitization_H6_vs_H5": sensitization,
+                "sensitization_rule": "Do not infer sensitization from the later anchor response. Use src/run_sensitization_v03.py, where the identical weak cue is the measured current prompt.",
                 "warnings": warnings,
                 "length_rule": "finish_reason=length is excluded from confirmatory response-length effects",
                 "control_rule": "directional interpretation is strongest when an effect has the same sign versus both H0 warm and H1 neutral-terse controls",
