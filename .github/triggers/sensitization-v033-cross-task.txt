@@ -1,0 +1,5 @@
+launch=2026-09-11
+stage=v0.3.3-cross-task
+replications=1
+tasks=evidence_revision,simple_complex,unexpected_result
+purpose=replicate evaluation-specific sensitization direction before multi-trial confirmation and final termination assay
