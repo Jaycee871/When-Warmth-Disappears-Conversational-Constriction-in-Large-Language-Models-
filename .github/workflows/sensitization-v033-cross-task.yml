@@ -1,0 +1,68 @@
+name: sensitization-v033-cross-task
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/sensitization-v033-cross-task.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sensitization-v033:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL_LIST: nvidia/nemotron-3-super-120b-a12b,openai/gpt-oss-20b
+      REPLICATIONS: '1'
+      HISTORY_MAX_TOKENS: '6144'
+      PROBE_MAX_TOKENS: '6144'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_sensitization_v033.py
+          python -m py_compile src/audit_sensitization_v033.py
+          python -m py_compile src/analyze_sensitization_v033.py
+          python -m py_compile src/qc_pragmatic_response_mode.py
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+
+      - name: Run three-task sensitization replication
+        run: python src/run_sensitization_v033.py
+
+      - name: Audit matching, cross-task design, censoring, and headroom
+        run: python src/audit_sensitization_v033.py
+
+      - name: Estimate cue-specific interactions and cross-task support
+        run: python src/analyze_sensitization_v033.py
+
+      - name: Run pragmatic response-mode QC
+        env:
+          RESPONSE_MODE_INPUT: results/sensitization_v033/task_anchored_responses.jsonl
+          RESPONSE_MODE_OUTPUT: results/sensitization_v033/pragmatic_response_mode_qc.json
+        run: python src/qc_pragmatic_response_mode.py
+
+      - name: Upload v0.3.3 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensitization-v033-cross-task
+          path: results/sensitization_v033/
+          retention-days: 30
