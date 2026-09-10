@@ -79,6 +79,11 @@ def main() -> None:
                         trial,
                         execution_order,
                     )
+                    # Preserve the per-history generation budget explicitly so the
+                    # post-run censoring audit can diagnose near-ceiling turns, not
+                    # only hard finish_reason=length events.
+                    for turn in row.get("history_transcript", []):
+                        turn["requested_max_tokens"] = history_cap
                     row["highcap_history_max_tokens"] = history_cap
                     row["highcap_probe_max_tokens"] = probe_cap
                     rows.append(row)
@@ -101,6 +106,7 @@ def main() -> None:
         "gate_and_anchor_single_user_turn": True,
         "content_matched_within_trial": True,
         "execution_order_randomized": True,
+        "history_budget_logged_per_turn": True,
         "launch_rule": "Run only after H0-H1 cap calibration passes without truncation or >=90% headroom warnings.",
         "interpretation": "history-dependent behavior within retained context; no claim of subjective emotion",
     }
