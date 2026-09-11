@@ -3,3 +3,5 @@ stage=v0.3.3-cross-task
 replications=1
 tasks=evidence_revision,simple_complex,unexpected_result
 purpose=replicate evaluation-specific sensitization direction before multi-trial confirmation and final termination assay
+transport_fix=split into 6 model-task shards with per-cell checkpointing and cell-level retry
+relaunch=1
