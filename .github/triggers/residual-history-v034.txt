@@ -1,0 +1,7 @@
+launch=2026-09-11
+stage=v0.3.4-neutral-history-replication
+replications=3
+tasks=evidence_revision,simple_complex,unexpected_result
+histories=H5_no_prior_pressure,H6_prior_combined_pressure
+cue=neutral
+purpose=prospectively test residual history-conditioned response-policy displacement on fresh stochastic draws after the v0.3.3 evaluation-sensitization gate failed
