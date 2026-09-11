@@ -105,4 +105,8 @@ Undermind workspace: https://app.undermind.ai/projects/c1d40ee3-2d47-48b8-98eb-4
 
 ## Status
 
-**Bootstrap stage — protocol v0.1.** The first target is an open-weight pilot on GPU, followed by multi-model replication and a literature-grounded preregistration.
+**v0.3.3 cross-task replication completed.** The sharded two-model, three-task, three-cue replication produced 36 valid confirmatory cells with no censoring or pragmatic-response-mode failures. The pre-specified cross-task rule for evaluation-specific sensitization was **not met** in either model. Nemotron retained an evaluation-versus-format ordering across all three tasks, while GPT-OSS did not, indicating substantial model/task heterogeneity.
+
+The locked confirmation gate therefore stops here: the planned termination/rejection assay is **not** being promoted as a confirmatory continuation of the v0.3.2 sentinel. The project now preserves the negative replication and shifts emphasis toward **model- and task-dependent conversational history effects and response-policy regimes**.
+
+See [`analysis/sensitization_v033.md`](analysis/sensitization_v033.md) for the complete v0.3.3 result and gate decision.
