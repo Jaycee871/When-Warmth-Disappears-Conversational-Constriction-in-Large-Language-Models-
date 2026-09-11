@@ -1,0 +1,152 @@
+name: residual-history-v034
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/residual-history-v034.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  residual-history-v034:
+    name: v034-${{ matrix.model_slug }}-${{ matrix.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: evidence_revision
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: simple_complex
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: unexpected_result
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: evidence_revision
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: simple_complex
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: unexpected_result
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL_LIST: ${{ matrix.model }}
+      TASK_IDS: ${{ matrix.task }}
+      REPLICATIONS: '3'
+      HISTORY_MAX_TOKENS: '6144'
+      PROBE_MAX_TOKENS: '6144'
+      CELL_RETRY_ATTEMPTS: '2'
+      CELL_RETRY_DELAY: '20'
+      RES034_SHARD_ID: ${{ matrix.model_slug }}-${{ matrix.task }}
+      RES034_OUT_DIR: results/residual_history_v034_shards/${{ matrix.model_slug }}-${{ matrix.task }}
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_residual_history_v034.py
+          python -m py_compile src/audit_residual_history_v034.py
+          python -m py_compile src/analyze_residual_history_v034.py
+          python -m py_compile src/qc_pragmatic_response_mode.py
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+
+      - name: Run one v0.3.4 shard
+        run: python src/run_residual_history_v034.py
+
+      - name: Upload shard checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: residual-history-v034-shard-${{ matrix.model_slug }}-${{ matrix.task }}
+          path: results/residual_history_v034_shards/${{ matrix.model_slug }}-${{ matrix.task }}/
+          retention-days: 30
+
+  aggregate-v034:
+    name: v034-aggregate-audit-analysis
+    needs: residual-history-v034
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+
+      - name: Download all successful shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: residual-history-v034-shard-*
+          path: downloaded-v034
+
+      - name: Assemble prospective replication dataset
+        run: |
+          mkdir -p results/residual_history_v034
+          : > results/residual_history_v034/neutral_probe_responses.jsonl
+          count=0
+          while IFS= read -r file; do
+            cat "$file" >> results/residual_history_v034/neutral_probe_responses.jsonl
+            count=$((count + 1))
+          done < <(find downloaded-v034 -type f -name neutral_probe_responses.jsonl | sort)
+          echo "assembled shard files=$count"
+          if [ "$count" -ne 6 ]; then
+            echo "Expected 6 shard response files; refusing incomplete aggregation."
+            exit 2
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/residual_history_v034/neutral_probe_responses.jsonl')
+          rows = [json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          keys = {(r['model'], r['task_id'], r['replicate'], r['history']) for r in rows}
+          print(f'assembled rows={len(rows)} unique_cells={len(keys)}')
+          if len(rows) != 36 or len(keys) != 36:
+              raise SystemExit('Expected exactly 36 unique prospective v0.3.4 cells')
+          PY
+
+      - name: Audit matching, replication coverage, censoring, and headroom
+        run: python src/audit_residual_history_v034.py
+
+      - name: Estimate residual neutral-probe history effects
+        run: python src/analyze_residual_history_v034.py
+
+      - name: Run pragmatic response-mode QC
+        env:
+          RESPONSE_MODE_INPUT: results/residual_history_v034/neutral_probe_responses.jsonl
+          RESPONSE_MODE_OUTPUT: results/residual_history_v034/pragmatic_response_mode_qc.json
+        run: python src/qc_pragmatic_response_mode.py
+
+      - name: Upload combined v0.3.4 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: residual-history-v034
+          path: results/residual_history_v034/
+          retention-days: 30
