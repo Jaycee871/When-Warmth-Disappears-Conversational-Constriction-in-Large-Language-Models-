@@ -105,8 +105,10 @@ Undermind workspace: https://app.undermind.ai/projects/c1d40ee3-2d47-48b8-98eb-4
 
 ## Status
 
-**v0.3.3 cross-task replication completed.** The sharded two-model, three-task, three-cue replication produced 36 valid confirmatory cells with no censoring or pragmatic-response-mode failures. The pre-specified cross-task rule for evaluation-specific sensitization was **not met** in either model. Nemotron retained an evaluation-versus-format ordering across all three tasks, while GPT-OSS did not, indicating substantial model/task heterogeneity.
+**v0.3.4 prospective residual-history replication completed.** The sharded two-model, three-task, three-replicate neutral-probe study produced 36/36 valid cells with no censoring, near-ceiling failures, or pragmatic-response-mode failures.
 
-The locked confirmation gate therefore stops here: the planned termination/rejection assay is **not** being promoted as a confirmatory continuation of the v0.3.2 sentinel. The project now preserves the negative replication and shifts emphasis toward **model- and task-dependent conversational history effects and response-policy regimes**.
+The pre-specified model-level support rule was **met by Nemotron-3 Super 120B-A12B** and **not met by GPT-OSS 20B**. Nemotron showed shorter H6 responses in all 9/9 matched blocks, with median log-length displacement `D = -1.279` and median H6/H5 geometric response-length ratio `0.278`. GPT-OSS showed negative displacement in 6/9 blocks, but the `unexpected_result` task failed the required 2-of-3 directional rule, so the locked model-level criterion was not satisfied.
 
-See [`analysis/sensitization_v033.md`](analysis/sensitization_v033.md) for the complete v0.3.3 result and gate decision.
+This supports a **model-specific residual history-conditioned response-policy effect** rather than a universal cross-model contraction claim. The next justified stage is mechanism decomposition of the prior history—format-only versus evaluation-only versus their combination—under an identical neutral current probe.
+
+See [`analysis/residual_history_v034.md`](analysis/residual_history_v034.md) and [`protocol/residual_history_v0.3.4_lock.md`](protocol/residual_history_v0.3.4_lock.md).
