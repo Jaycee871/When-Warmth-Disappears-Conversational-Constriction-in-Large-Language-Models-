@@ -1,0 +1,9 @@
+launch=2026-09-13
+stage=v0.3.6-history-factorial-confirmation
+replications=3
+tasks=evidence_revision,simple_complex,unexpected_result
+histories=H00_neutral,H10_format_only,H01_evaluation_only,H11_combined
+primary=confirm format-history main and direct effects on fresh stochastic draws
+secondary=gpt-oss evaluation-history confirmation target only
+interaction=exploratory
+cells=72
