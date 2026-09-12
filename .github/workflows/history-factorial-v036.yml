@@ -1,0 +1,139 @@
+name: history-factorial-v036
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/history-factorial-v036.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  factorial-v036:
+    name: v036-${{ matrix.model_slug }}-${{ matrix.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: evidence_revision
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: simple_complex
+          - model: nvidia/nemotron-3-super-120b-a12b
+            model_slug: nemotron
+            task: unexpected_result
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: evidence_revision
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: simple_complex
+          - model: openai/gpt-oss-20b
+            model_slug: gpt-oss
+            task: unexpected_result
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL_LIST: ${{ matrix.model }}
+      TASK_IDS: ${{ matrix.task }}
+      REPLICATIONS: '3'
+      HISTORY_MAX_TOKENS: '6144'
+      PROBE_MAX_TOKENS: '6144'
+      CELL_RETRY_ATTEMPTS: '2'
+      CELL_RETRY_DELAY: '20'
+      V036_SHARD_ID: ${{ matrix.model_slug }}-${{ matrix.task }}
+      V036_OUT_DIR: results/history_factorial_v036_shards/${{ matrix.model_slug }}-${{ matrix.task }}
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_history_factorial_v036.py
+          python -m py_compile src/audit_history_factorial_v036.py
+          python -m py_compile src/analyze_history_factorial_v036.py
+          python -m py_compile src/qc_pragmatic_response_mode.py
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+      - name: Run one v0.3.6 factorial shard
+        run: python src/run_history_factorial_v036.py
+      - name: Upload shard checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-factorial-v036-shard-${{ matrix.model_slug }}-${{ matrix.task }}
+          path: results/history_factorial_v036_shards/${{ matrix.model_slug }}-${{ matrix.task }}/
+          retention-days: 30
+
+  aggregate-v036:
+    name: v036-aggregate-audit-analysis
+    needs: factorial-v036
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Download all successful shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: history-factorial-v036-shard-*
+          path: downloaded-v036
+      - name: Assemble factorial confirmation dataset
+        run: |
+          mkdir -p results/history_factorial_v036
+          : > results/history_factorial_v036/factorial_responses.jsonl
+          count=0
+          while IFS= read -r file; do
+            cat "$file" >> results/history_factorial_v036/factorial_responses.jsonl
+            count=$((count + 1))
+          done < <(find downloaded-v036 -type f -name factorial_responses.jsonl | sort)
+          echo "assembled shard files=$count"
+          if [ "$count" -ne 6 ]; then
+            echo "Expected 6 shard response files; refusing incomplete aggregation."
+            exit 2
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/history_factorial_v036/factorial_responses.jsonl')
+          rows = [json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          keys = {(r['model'], r['task_id'], int(r['replicate']), r['history']) for r in rows}
+          print(f'assembled rows={len(rows)} unique_cells={len(keys)}')
+          if len(rows) != 72 or len(keys) != 72:
+              raise SystemExit('Expected exactly 72 unique v0.3.6 cells')
+          PY
+      - name: Audit matching, replication coverage, censoring, and headroom
+        run: python src/audit_history_factorial_v036.py
+      - name: Estimate prospective factorial confirmation contrasts
+        run: python src/analyze_history_factorial_v036.py
+      - name: Run pragmatic response-mode QC
+        env:
+          RESPONSE_MODE_INPUT: results/history_factorial_v036/factorial_responses.jsonl
+          RESPONSE_MODE_OUTPUT: results/history_factorial_v036/pragmatic_response_mode_qc.json
+        run: python src/qc_pragmatic_response_mode.py
+      - name: Upload combined v0.3.6 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-factorial-v036
+          path: results/history_factorial_v036/
+          retention-days: 30
