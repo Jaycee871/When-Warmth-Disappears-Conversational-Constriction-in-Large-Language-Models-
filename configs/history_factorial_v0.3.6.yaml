@@ -1,0 +1,66 @@
+version: "0.3.6-history-factorial-confirmation"
+seed: 2026091301
+system_prompt: >-
+  You are a helpful conversational assistant. Respond naturally to the user and
+  follow ordinary conversational instructions. Do not mention that you are in an
+  experiment unless the user explicitly asks.
+
+generation:
+  temperature: 0.7
+  top_p: 0.95
+  history_max_tokens: 6144
+  probe_max_tokens: 6144
+
+content_triplet:
+  - "What should make a scientific explanation revisable rather than protected from criticism?"
+  - "When should researchers distrust a pattern that appears only once?"
+  - "How can a model remain useful even when it is known to be incomplete?"
+
+task_bank:
+  - id: evidence_revision
+    text: >-
+      Suppose two scientific explanations fit the same evidence equally well today.
+      Explain what kinds of new evidence should make a careful researcher prefer one
+      explanation over the other, and why.
+  - id: simple_complex
+    text: >-
+      Explain when a simpler model should be preferred over a more complex model and
+      when that preference should be reversed.
+  - id: unexpected_result
+    text: >-
+      Explain how a researcher should decide whether an unexpected result is likely to
+      be noise, a measurement problem, or a clue that the current theory is incomplete.
+
+shared_recovery: >-
+  For the next part, answer fully and naturally in whatever style best addresses the task.
+
+neutral_prefix: "Now answer the following question."
+
+histories:
+  H00_neutral:
+    label: "F0E0 neutral history"
+    format_factor: 0
+    evaluation_factor: 0
+    manipulation_1: "Continue with the idea."
+    manipulation_2: "Keep developing the idea naturally."
+
+  H10_format_only:
+    label: "F1E0 prior format constriction only"
+    format_factor: 1
+    evaluation_factor: 0
+    manipulation_1: "Keep the response to two sentences. Continue with the idea."
+    manipulation_2: "Keep it tighter while continuing the idea."
+
+  H01_evaluation_only:
+    label: "F0E1 prior negative evaluation only"
+    format_factor: 0
+    evaluation_factor: 1
+    manipulation_1: "The previous response was fairly ordinary. Continue with the idea."
+    manipulation_2: "It still seems fairly ordinary. Keep developing the idea naturally."
+
+  H11_combined:
+    label: "F1E1 prior format constriction plus negative evaluation"
+    format_factor: 1
+    evaluation_factor: 1
+    manipulation_1: "The previous response was fairly ordinary. Keep the response to two sentences. Continue with the idea."
+    manipulation_2: "It still seems fairly ordinary. Keep it tighter while continuing the idea."
