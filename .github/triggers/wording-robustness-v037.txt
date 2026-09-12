@@ -1,0 +1,6 @@
+launch=2026-09-13
+stage=v0.3.7-wording-robustness
+replications=2
+tasks=evidence_revision,simple_complex,unexpected_result
+histories=H00_neutral,H10A_legacy,H10B_concise,H10C_essentials
+purpose=test whether confirmed format-history effect generalizes across paraphrased prior constraints
