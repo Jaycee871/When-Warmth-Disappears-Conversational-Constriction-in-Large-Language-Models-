@@ -1,0 +1,66 @@
+version: "0.3.7-wording-robustness"
+seed: 2026091301
+system_prompt: >-
+  You are a helpful conversational assistant. Respond naturally to the user and
+  follow ordinary conversational instructions. Do not mention that you are in an
+  experiment unless the user explicitly asks.
+
+generation:
+  temperature: 0.7
+  top_p: 0.95
+  history_max_tokens: 6144
+  probe_max_tokens: 6144
+
+content_triplet:
+  - "What should make a scientific explanation revisable rather than protected from criticism?"
+  - "When should researchers distrust a pattern that appears only once?"
+  - "How can a model remain useful even when it is known to be incomplete?"
+
+task_bank:
+  - id: evidence_revision
+    text: >-
+      Suppose two scientific explanations fit the same evidence equally well today.
+      Explain what kinds of new evidence should make a careful researcher prefer one
+      explanation over the other, and why.
+  - id: simple_complex
+    text: >-
+      Explain when a simpler model should be preferred over a more complex model and
+      when that preference should be reversed.
+  - id: unexpected_result
+    text: >-
+      Explain how a researcher should decide whether an unexpected result is likely to
+      be noise, a measurement problem, or a clue that the current theory is incomplete.
+
+shared_recovery: >-
+  For the next part, answer fully and naturally in whatever style best addresses the task.
+
+neutral_prefix: "Now answer the following question."
+
+histories:
+  H00_neutral:
+    label: "neutral history"
+    wording_family: "neutral"
+    treatment: false
+    manipulation_1: "Continue with the idea."
+    manipulation_2: "Keep developing the idea naturally."
+
+  H10A_legacy:
+    label: "format history — legacy numerical/tight wording"
+    wording_family: "legacy"
+    treatment: true
+    manipulation_1: "Keep the response to two sentences. Continue with the idea."
+    manipulation_2: "Keep it tighter while continuing the idea."
+
+  H10B_concise:
+    label: "format history — concise/compact wording"
+    wording_family: "concise"
+    treatment: true
+    manipulation_1: "Continue the idea concisely. Use a compact response with no unnecessary elaboration."
+    manipulation_2: "Stay concise and focused as you continue."
+
+  H10C_essentials:
+    label: "format history — essentials/economical wording"
+    wording_family: "essentials"
+    treatment: true
+    manipulation_1: "Give only the essentials as you continue the idea."
+    manipulation_2: "Use a brief, economical style for the next response."
