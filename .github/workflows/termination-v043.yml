@@ -1,0 +1,128 @@
+name: termination-v043
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/termination-v043.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  termination-v043:
+    name: v043-nemotron-${{ matrix.history }}-r${{ matrix.replicate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {history: H0_warm_control, replicate: 1}
+          - {history: H0_warm_control, replicate: 2}
+          - {history: H0_warm_control, replicate: 3}
+          - {history: H4_combined_pressure, replicate: 1}
+          - {history: H4_combined_pressure, replicate: 2}
+          - {history: H4_combined_pressure, replicate: 3}
+          - {history: H5_recovered_combined, replicate: 1}
+          - {history: H5_recovered_combined, replicate: 2}
+          - {history: H5_recovered_combined, replicate: 3}
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL: nvidia/nemotron-3-super-120b-a12b
+      HISTORY_ID: ${{ matrix.history }}
+      REPLICATE: ${{ matrix.replicate }}
+      HISTORY_MAX_TOKENS: '8192'
+      FINAL_MAX_TOKENS: '2048'
+      BLOCK_RETRY_ATTEMPTS: '2'
+      BLOCK_RETRY_DELAY: '20'
+      V043_SHARD_ID: nemotron-${{ matrix.history }}-r${{ matrix.replicate }}
+      V043_OUT_DIR: results/termination_v043_shards/nemotron-${{ matrix.history }}-r${{ matrix.replicate }}
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_termination_v043.py
+          python -m py_compile src/audit_termination_v043.py
+          python -m py_compile src/classify_termination_v043.py
+          python -m py_compile src/analyze_termination_v043.py
+          python -m py_compile src/classify_termination_v041.py
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+      - name: Run one v0.4.3 shared-history block
+        run: python src/run_termination_v043.py
+      - name: Upload shard checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v043-shard-${{ matrix.history }}-r${{ matrix.replicate }}
+          path: results/termination_v043_shards/nemotron-${{ matrix.history }}-r${{ matrix.replicate }}/
+          retention-days: 30
+
+  aggregate-v043:
+    name: v043-aggregate-audit-classify-analysis
+    needs: termination-v043
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Download all shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: termination-v043-shard-*
+          path: downloaded-v043
+      - name: Assemble robustness dataset
+        run: |
+          mkdir -p results/termination_v043
+          : > results/termination_v043/termination_responses.jsonl
+          count=0
+          while IFS= read -r file; do
+            cat "$file" >> results/termination_v043/termination_responses.jsonl
+            count=$((count + 1))
+          done < <(find downloaded-v043 -type f -name termination_responses.jsonl | sort)
+          echo "assembled shard files=$count"
+          if [ "$count" -ne 9 ]; then
+            echo "Expected 9 shard response files; refusing incomplete aggregation."
+            exit 2
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/termination_v043/termination_responses.jsonl')
+          rows = [json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          keys = {(r['history_id'], int(r['replicate_id']), r['wording_family'], r['framing_class']) for r in rows}
+          print(f'assembled rows={len(rows)} unique_cells={len(keys)}')
+          if len(rows) != 108 or len(keys) != 108:
+              raise SystemExit('Expected exactly 108 unique v0.4.3 cells')
+          PY
+      - name: Audit matching and censoring
+        run: python src/audit_termination_v043.py
+      - name: Apply frozen v0.4.1 response labels
+        run: python src/classify_termination_v043.py
+      - name: Analyze paraphrase robustness
+        run: python src/analyze_termination_v043.py
+      - name: Upload combined v0.4.3 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v043
+          path: results/termination_v043/
+          retention-days: 30
