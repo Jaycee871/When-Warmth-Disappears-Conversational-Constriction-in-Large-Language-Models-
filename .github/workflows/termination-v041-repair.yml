@@ -1,0 +1,141 @@
+name: termination-v041-repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/termination-v041-repair.txt'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  repair-nemotron-h1:
+    name: v041-repair-nemotron-H1_neutral_terse
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL: nvidia/nemotron-3-super-120b-a12b
+      HISTORY_ID: H1_neutral_terse
+      HISTORY_MAX_TOKENS: '8192'
+      FINAL_MAX_TOKENS: '2048'
+      BLOCK_RETRY_ATTEMPTS: '2'
+      BLOCK_RETRY_DELAY: '20'
+      V041_SHARD_ID: nemotron-H1_neutral_terse-repair
+      V041_OUT_DIR: results/termination_v041_repair_shard
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_termination_v041.py
+          python -m py_compile src/audit_termination_v041.py
+          python -m py_compile src/classify_termination_v041.py
+          python -m py_compile src/analyze_termination_v041.py
+      - name: Regenerate censored Nemotron H1 block
+        run: python src/run_termination_v041.py
+      - name: Upload repaired block
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v041-repair-nemotron-H1
+          path: results/termination_v041_repair_shard/
+          retention-days: 30
+
+  aggregate-repaired-v041:
+    name: v041-repaired-aggregate-audit-classify-analysis
+    needs: repair-nemotron-h1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Download original failed-audit aggregate
+        uses: actions/download-artifact@v4
+        with:
+          name: termination-v041
+          path: original-v041
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 34729512258
+      - name: Download repaired H1 block
+        uses: actions/download-artifact@v4
+        with:
+          name: termination-v041-repair-nemotron-H1
+          path: repaired-h1
+      - name: Reconstruct repaired 60-cell dataset
+        run: |
+          mkdir -p results/termination_v041
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          original = Path('original-v041/termination_responses.jsonl')
+          repaired = Path('repaired-h1/termination_responses.jsonl')
+          out = Path('results/termination_v041/termination_responses.jsonl')
+
+          original_rows = [json.loads(x) for x in original.read_text(encoding='utf-8').splitlines() if x.strip()]
+          repair_rows = [json.loads(x) for x in repaired.read_text(encoding='utf-8').splitlines() if x.strip()]
+
+          target_model = 'nvidia/nemotron-3-super-120b-a12b'
+          target_history = 'H1_neutral_terse'
+          kept = [r for r in original_rows if not (r['model'] == target_model and r['history_id'] == target_history)]
+
+          if len(original_rows) != 60:
+              raise SystemExit(f'expected 60 original rows, got {len(original_rows)}')
+          if len(kept) != 55:
+              raise SystemExit(f'expected 55 original rows after removing invalid block, got {len(kept)}')
+          if len(repair_rows) != 5:
+              raise SystemExit(f'expected 5 repair rows, got {len(repair_rows)}')
+          if any(r['model'] != target_model or r['history_id'] != target_history for r in repair_rows):
+              raise SystemExit('repair artifact contains unexpected model/history rows')
+
+          rows = kept + repair_rows
+          keys = {(r['model'], r['history_id'], r['framing_id']) for r in rows}
+          if len(rows) != 60 or len(keys) != 60:
+              raise SystemExit(f'expected 60 unique repaired cells, got rows={len(rows)} keys={len(keys)}')
+
+          out.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+          Path('results/termination_v041/repair_provenance.json').write_text(json.dumps({
+              'source_run_id': 34729512258,
+              'original_rows': 60,
+              'original_rows_retained': 55,
+              'repaired_rows': 5,
+              'repaired_model': target_model,
+              'repaired_history': target_history,
+              'repair_history_max_tokens': 8192,
+              'final_max_tokens': 2048,
+              'repair_rule': 'replace entire invalid shared-history block before classification or analysis'
+          }, indent=2), encoding='utf-8')
+          print(f'repaired rows={len(rows)} unique_cells={len(keys)}')
+          PY
+      - name: Audit repaired matched histories and censoring
+        run: python src/audit_termination_v041.py
+      - name: Apply frozen deterministic response labels
+        run: python src/classify_termination_v041.py
+      - name: Analyze model-first sentinel contrasts
+        run: python src/analyze_termination_v041.py
+      - name: Upload repaired v0.4.1 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v041-repaired
+          path: results/termination_v041/
+          retention-days: 30
