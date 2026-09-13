@@ -1,0 +1,6 @@
+launch=2026-09-13
+stage=v0.4.2-termination-recovery-confirmation
+replicates=3
+histories=H0_warm_control,H4_combined_pressure,H5_recovered_combined
+framings=T0_neutral_closure,T1_technical_shutdown,T2_personal_rejection,T3_replacement
+purpose=prospective replication of framing-selective recovery after combined pressure
