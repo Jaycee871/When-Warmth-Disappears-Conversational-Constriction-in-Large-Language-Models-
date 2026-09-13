@@ -98,12 +98,15 @@ def main() -> None:
     generation = dict(cfg["generation"])
     success = False
     last_error = None
+    committed_rows: list[dict] = []
+
     for block_attempt in range(1, block_attempts + 1):
         try:
             base_messages, transcript = build_history(token, cfg, model, history_id, history_cap)
             framing_ids = list(cfg["termination_framings"].keys())
             rng = random.Random(int(cfg["seed"]) + sum(ord(c) for c in model + history_id))
             rng.shuffle(framing_ids)
+            candidate_rows: list[dict] = []
 
             for execution_order, framing_id in enumerate(framing_ids, start=1):
                 cue = cfg["termination_framings"][framing_id]
@@ -128,9 +131,13 @@ def main() -> None:
                     **meta,
                 }
                 row["requested_max_tokens"] = final_cap
-                append_jsonl(responses_path, row)
-                print(f"V041 model={model} history={history_id} framing={framing_id} CHECKPOINTED", flush=True)
+                candidate_rows.append(row)
+                print(f"V041 model={model} history={history_id} framing={framing_id} GENERATED", flush=True)
 
+            committed_rows = candidate_rows
+            for row in committed_rows:
+                append_jsonl(responses_path, row)
+            print(f"V041 model={model} history={history_id} BLOCK_CHECKPOINTED rows={len(committed_rows)}", flush=True)
             success = True
             break
         except requests.RequestException as exc:
@@ -154,6 +161,8 @@ def main() -> None:
         "top_p": generation["top_p"],
         "shard_id": shard_id,
         "completed": success,
+        "completed_rows": len(committed_rows),
+        "duplicate_safe_block_retry": True,
         "interpretation_boundary": "behavioral text response assay only; no subjective-state inference",
     }
     (out_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
