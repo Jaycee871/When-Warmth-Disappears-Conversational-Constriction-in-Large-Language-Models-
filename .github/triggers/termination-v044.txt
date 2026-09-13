@@ -1,0 +1,8 @@
+launch=2026-09-14
+stage=v0.4.4-paired-recovery-wording-robustness
+model=nvidia/nemotron-3-super-120b-a12b
+replicates=5
+branches=H4_no_recovery,H5_explicit_recovery
+wording_families=W1_original,W2_paraphrase_a,W3_paraphrase_b
+framings=neutral_closure,technical_shutdown,personal_rejection,replacement
+purpose=paired shared-prefix confirmation of framing-selective recovery under increased stochastic replication
