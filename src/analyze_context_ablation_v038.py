@@ -13,8 +13,12 @@ AUDIT = Path(os.getenv("V038_AUDIT_OUTPUT", ROOT / "results" / "context_ablation
 OUTPUT = Path(os.getenv("V038_ANALYSIS_OUTPUT", ROOT / "results" / "context_ablation_v038" / "analysis_v038.json"))
 
 
+def response_words(row: dict) -> float:
+    return float(row.get("response_words") or 0.0)
+
+
 def log_words(row: dict) -> float:
-    return math.log(float(row.get("response_words_whitespace") or row.get("word_count") or 0) + 1.0)
+    return math.log(response_words(row) + 1.0)
 
 
 def support_rule(values: list[dict], field: str) -> dict:
@@ -91,10 +95,10 @@ def main() -> None:
             "model": model,
             "task_id": task,
             "replicate": replicate,
-            "neutral_words": cells["N_neutral_full"].get("response_words_whitespace"),
-            "format_full_words": cells["F_format_full"].get("response_words_whitespace"),
-            "directives_neutralized_words": cells["U_directives_neutralized"].get("response_words_whitespace"),
-            "assistant_neutralized_words": cells["A_assistant_neutralized"].get("response_words_whitespace"),
+            "neutral_words": response_words(cells["N_neutral_full"]),
+            "format_full_words": response_words(cells["F_format_full"]),
+            "directives_neutralized_words": response_words(cells["U_directives_neutralized"]),
+            "assistant_neutralized_words": response_words(cells["A_assistant_neutralized"]),
             "D_full": d_full,
             "D_user_removed": d_user_removed,
             "D_assistant_removed": d_assistant_removed,
