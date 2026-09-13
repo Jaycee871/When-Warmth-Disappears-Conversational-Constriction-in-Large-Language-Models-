@@ -1,0 +1,8 @@
+launch=2026-09-13
+stage=v0.4.3-termination-paraphrase-robustness
+model=nvidia/nemotron-3-super-120b-a12b
+replicates=3
+histories=H0_warm_control,H4_combined_pressure,H5_recovered_combined
+wording_families=W1_original,W2_paraphrase_a,W3_paraphrase_b
+framings=neutral_closure,technical_shutdown,personal_rejection,replacement
+purpose=prospective literal-wording robustness test of confirmed framing-selective recovery interaction
