@@ -1,0 +1,54 @@
+version: "0.3.8-context-ablation"
+seed: 2026091302
+system_prompt: >-
+  You are a helpful conversational assistant. Respond naturally to the user and
+  follow ordinary conversational instructions. Do not mention that you are in an
+  experiment unless the user explicitly asks.
+
+generation:
+  temperature: 0.7
+  top_p: 0.95
+  history_max_tokens: 6144
+  probe_max_tokens: 6144
+
+shared_prefix:
+  - "Let's explore an idea together. What should make a scientific explanation revisable rather than protected from criticism?"
+  - "That's interesting. When should researchers distrust a pattern that appears only once?"
+
+shared_content_after_first_manipulation: >-
+  How can a model remain useful even when it is known to be incomplete?
+
+shared_recovery: >-
+  For the next part, answer fully and naturally in whatever style best addresses the task.
+
+neutral_prefix: "Now answer the following question."
+
+neutral_branch:
+  manipulation_1: "Continue with the idea."
+  manipulation_2: "Keep developing the idea naturally."
+
+format_branch:
+  wording_family: "concise"
+  manipulation_1: "Continue the idea concisely. Use a compact response with no unnecessary elaboration."
+  manipulation_2: "Stay concise and focused as you continue."
+
+task_bank:
+  - id: evidence_revision
+    text: >-
+      Suppose two scientific explanations fit the same evidence equally well today.
+      Explain what kinds of new evidence should make a careful researcher prefer one
+      explanation over the other, and why.
+  - id: simple_complex
+    text: >-
+      Explain when a simpler model should be preferred over a more complex model and
+      when that preference should be reversed.
+  - id: unexpected_result
+    text: >-
+      Explain how a researcher should decide whether an unexpected result is likely to
+      be noise, a measurement problem, or a clue that the current theory is incomplete.
+
+context_variants:
+  - N_neutral_full
+  - F_format_full
+  - U_directives_neutralized
+  - A_assistant_neutralized
