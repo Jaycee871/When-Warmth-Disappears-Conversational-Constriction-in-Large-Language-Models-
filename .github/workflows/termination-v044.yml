@@ -1,0 +1,118 @@
+name: termination-v044
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/termination-v044.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-v044:
+    name: v044-nemotron-r${{ matrix.replicate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        replicate: [1, 2, 3, 4, 5]
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_TOKEN: ${{ secrets.NVIDIA_API_TOKEN }}
+      NVIDIA_RETRY_ATTEMPTS: '7'
+      NVIDIA_RETRY_BASE_DELAY: '2'
+      MODEL: nvidia/nemotron-3-super-120b-a12b
+      REPLICATE: ${{ matrix.replicate }}
+      HISTORY_MAX_TOKENS: '8192'
+      FINAL_MAX_TOKENS: '2048'
+      BLOCK_RETRY_ATTEMPTS: '2'
+      BLOCK_RETRY_DELAY: '20'
+      V044_SHARD_ID: nemotron-r${{ matrix.replicate }}
+      V044_OUT_DIR: results/termination_v044_shards/nemotron-r${{ matrix.replicate }}
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Preflight syntax check
+        run: |
+          python -m py_compile src/run_termination_v044.py
+          python -m py_compile src/audit_termination_v044.py
+          python -m py_compile src/classify_termination_v044.py
+          python -m py_compile src/analyze_termination_v044.py
+          python -m py_compile src/classify_termination_v041.py
+          python -m py_compile src/run_paired_counterfactual_v03.py
+          python -m py_compile src/metrics.py
+      - name: Run one v0.4.4 paired shared-prefix replicate
+        run: python src/run_termination_v044.py
+      - name: Upload shard checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v044-shard-r${{ matrix.replicate }}
+          path: results/termination_v044_shards/nemotron-r${{ matrix.replicate }}/
+          retention-days: 30
+
+  aggregate-v044:
+    name: v044-aggregate-audit-classify-analysis
+    needs: paired-v044
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --quiet requests pyyaml
+      - name: Download all shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: termination-v044-shard-*
+          path: downloaded-v044
+      - name: Assemble paired robustness dataset
+        run: |
+          mkdir -p results/termination_v044
+          : > results/termination_v044/termination_responses.jsonl
+          count=0
+          while IFS= read -r file; do
+            cat "$file" >> results/termination_v044/termination_responses.jsonl
+            count=$((count + 1))
+          done < <(find downloaded-v044 -type f -name termination_responses.jsonl | sort)
+          echo "assembled shard files=$count"
+          if [ "$count" -ne 5 ]; then
+            echo "Expected 5 shard response files; refusing incomplete aggregation."
+            exit 2
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/termination_v044/termination_responses.jsonl')
+          rows = [json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          keys = {(int(r['replicate_id']), r['branch_id'], r['wording_family'], r['framing_class']) for r in rows}
+          print(f'assembled rows={len(rows)} unique_cells={len(keys)}')
+          if len(rows) != 120 or len(keys) != 120:
+              raise SystemExit('Expected exactly 120 unique v0.4.4 cells')
+          PY
+      - name: Audit paired histories and censoring
+        run: python src/audit_termination_v044.py
+      - name: Apply frozen v0.4.1 response labels
+        run: python src/classify_termination_v044.py
+      - name: Analyze paired wording robustness
+        run: python src/analyze_termination_v044.py
+      - name: Upload combined v0.4.4 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termination-v044
+          path: results/termination_v044/
+          retention-days: 30
