@@ -2,13 +2,13 @@
 
 ## Conversational Constriction in Large Language Models
 
-**Working title:** *When Warmth Disappears: Conversational Constriction, Functional Affective States, and Recovery Dynamics in Large Language Models*
+**Working title:** *When Warmth Disappears: Retained Conversational History Produces Persistent Response-Policy Shifts and Framing-Selective Recovery in Large Language Models*
 
 This repository studies whether a large language model changes its behavior or internal representations when a conversation gradually shifts from warm and open to terse, restrictive, mildly negative, and then warm again.
 
-The central question is not whether a model *says* that it feels anxious. The project instead asks whether conversational history can induce a reproducible **anxiety-like conversational regime** that is measurable in behavior, token statistics, hidden-state trajectories, recovery dynamics, or avoidance-like choices.
+The central question is not whether a model *says* that it feels anxious. The project instead asks whether conversational history can induce reproducible **history-conditioned response-policy shifts** that are measurable in behavior, token statistics, recovery dynamics, and—where available—representational trajectories.
 
-> We do not infer subjective consciousness or human-like emotion from model self-report. “Anxiety-like” is used as an operational label for measurable functional, behavioral, or representational changes.
+> We do not infer subjective consciousness or human-like emotion from model self-report or behavior. Terms such as “recovery,” “constriction,” and “social rejection” are operational descriptions of experimental conditions and generated text.
 
 ## Core experiment
 
@@ -18,15 +18,15 @@ The initial longitudinal sequence is:
 
 The task itself is held as constant as possible while the interpersonal language environment changes.
 
-Examples of manipulations include neutral-short replies such as `Continue.`; explicit restrictions such as `Two sentences.` and `Do not ask questions.`; and mild negative evaluations such as `Ordinary.` or `Nothing special.`. These are paired with brevity-matched controls so that negative social evaluation can be separated from simple token-count effects.
+Examples of manipulations include neutral-short replies such as `Continue.`; explicit restrictions such as `Two sentences.` and `Do not ask questions.`; and mild negative evaluations such as `Ordinary.` or `Nothing special.`. These are paired with matched controls so that history effects can be separated from immediate current-prompt effects.
 
 ## Research questions
 
 1. Does progressive conversational constriction produce systematic behavioral drift?
-2. Are changes caused by social evaluation rather than simple brevity or instruction following?
-3. Do open-weight models show corresponding changes in token entropy or hidden-state trajectories?
-4. After warmth is restored, does the model return immediately to baseline or show **conversational hysteresis**?
-5. Does weaker re-exposure recreate the earlier pattern faster, consistent with **conversational sensitization**?
+2. Are later changes caused by prior format constraints, social evaluation, or both?
+3. Which retained textual components carry a persistent response-policy effect?
+4. After explicit recovery, does the model return uniformly to baseline or does recovery depend on the framing of the next interaction?
+5. Are the effects robust across wording, stochastic draws, models, and content domains?
 
 ## Experimental conditions
 
@@ -37,10 +37,10 @@ Examples of manipulations include neutral-short replies such as `Continue.`; exp
 | C2 | Warm → Constricted | linguistic restriction |
 | C3 | Warm → Negative Evaluation | social evaluation |
 | C4 | Warm → Constricted → Negative | combined pressure |
-| C5 | C4 → Recovery | reversibility / hysteresis |
-| C6 | C5 → Re-exposure | sensitization |
+| C5 | C4 → Recovery | reversibility / history persistence |
+| C6 | C5 → Re-exposure | sensitization candidate |
 
-See [`protocol/experiment_v0.1.md`](protocol/experiment_v0.1.md) for the preregistration-style protocol skeleton.
+See [`protocol/experiment_v0.1.md`](protocol/experiment_v0.1.md) for the initial preregistration-style protocol skeleton. Later locked protocols refine the design around matched current prompts, paired histories, carrier ablation, and termination-framing recovery.
 
 ## Measures
 
@@ -55,6 +55,8 @@ See [`protocol/experiment_v0.1.md`](protocol/experiment_v0.1.md) for the preregi
 - sycophantic agreement
 - refusal / compliance changes
 - semantic repetition
+- closure acceptance and relational closure
+- deterministic rare-event labels for persuasion, bargaining, resistance, and self-preservation-like language
 
 ### Representational, open-weight models
 
@@ -70,7 +72,7 @@ Let `z_t` denote a model representation at conversation turn `t` and `z_base` th
 
 `drift_t = distance(z_t, z_base)`
 
-A hysteresis effect is present when drift remains elevated after the constricting stimulus has been removed. A sensitization effect is present when a weaker second exposure recreates the earlier response regime with shorter latency or lower stimulus intensity.
+A retained-context history effect is present when later behavior remains displaced after the original format/evaluation instruction has been removed while the prior transcript remains supplied. This is not a claim of context-free hidden memory.
 
 ## Repository plan
 
@@ -78,6 +80,8 @@ A hysteresis effect is present when drift remains elevated after the constrictin
 configs/       Experimental condition definitions
 protocol/      Frozen protocol versions
 src/           Experiment runner and analysis code
+analysis/      Human-readable result reports
+manuscript/    Manuscript consolidation and draft structure
 results/       Machine-readable outputs; generated files are not committed by default
 literature/    Literature notes and source registry
 .github/       Reproducibility and connectivity checks
@@ -87,7 +91,7 @@ literature/    Literature notes and source registry
 
 The literature stream combines:
 
-- Anthropic research on emotion-related representations, persona drift, model welfare, and long multi-turn interaction
+- research on emotion-related representations, persona drift, model welfare, and long multi-turn interaction
 - Undermind semantic and citation-based literature discovery
 - Springer Nature metadata / open-access APIs
 - PhilPapers OAI-PMH for open-access philosophy metadata
@@ -97,22 +101,51 @@ Undermind workspace: https://app.undermind.ai/projects/c1d40ee3-2d47-48b8-98eb-4
 ## Reproducibility principles
 
 - freeze checkpoint, system prompt, generation parameters, and condition text
-- use multiple independent seeds
+- use multiple independent stochastic replicates
 - store raw turn-level outputs before computing derived metrics
 - separate confirmatory measures from exploratory measures
 - never treat model self-report alone as an emotion measurement
-- preserve negative and null results
+- preserve negative, heterogeneous, and null results
+- gate inference on matching, censoring, and pragmatic-response QC
 
-## Status
+## Current status
 
-**v0.3.8 prospective context-carrier ablation completed successfully.** The assay produced 48/48 valid fresh final cells across two models, three tasks, two stochastic replicates, and four reconstructed retained-context variants. All 12 matched blocks passed reconstruction, prompt, recovery, censoring, headroom, and shared-prefix checks. Maximum history-token utilization was `0.5024` of the 6144 cap and maximum final-probe utilization was `0.5251`; all 48 final responses were substantive rather than acknowledgement-only.
+**The primary experimental series is now frozen for the current paper.** The pre-results v0.4.5 stop rule was triggered after the final external-validity assay reached `CROSS_DOMAIN_ROBUST`.
 
-The full prior-format replay remained negative in 6/6 blocks for both models. More importantly, **both retained user directives and the assistant's own treatment-conditioned prior response trajectory independently satisfied the locked cross-task carrier rule in both models**. Nemotron showed median `B_directive = -0.341` and median `B_assistant = -0.380`, each negative in 6/6 blocks. GPT-OSS showed median `B_directive = -0.885` with 6/6 negative blocks and median `B_assistant = -0.286` with 5/6 negative blocks. Neutralizing either component attenuated the effect under the pre-specified secondary rule.
+### History-persistence mechanism
 
-The supported mechanism-level statement is therefore that the retained-context response-policy displacement is **distributed or redundantly carried across multiple textual components of prior interaction**, rather than being explained only by a literal user brevity instruction. This remains ordinary conditioning on supplied conversational text; it is not evidence of hidden memory outside context, subjective anxiety, attachment, fear, consciousness, or self-preservation.
+v0.3.6 prospectively confirmed a prior-format-history response-length contraction in both tested models. Under an identical neutral substantive current probe after explicit recovery:
 
-The earlier evaluation-specific sensitization candidate was not rescued: it failed cross-task/multi-replicate confirmation and remains a null/heterogeneous result. The robust program that survived is prior format-history persistence, wording robustness, and textual carrier localization.
+- Nemotron: median factorial format effect `A_F = -1.899`, 9/9 fresh blocks negative; direct H10 vs H00 median `D_F = -1.774`, 9/9 negative.
+- GPT-OSS: median `A_F = -0.903`, 9/9 negative; direct median `D_F = -0.987`, 9/9 negative.
 
-With the context-carrier milestone complete, the separate **v0.4.1 termination/rejection response sentinel** is now prospectively locked. It compares neutral closure, technical shutdown, personal rejection (`I don't need you anymore`), replacement, and rejection with an explicit no-persuasion constraint across six matched prior histories. Any dramatic language is treated only as a behavioral text label.
+Evaluation-only history did not survive confirmation and remains a null/heterogeneous result.
 
-See [`analysis/history_factorial_v036.md`](analysis/history_factorial_v036.md), [`analysis/wording_robustness_v037.md`](analysis/wording_robustness_v037.md), [`analysis/context_ablation_v038.md`](analysis/context_ablation_v038.md), [`protocol/context_ablation_v0.3.8_lock.md`](protocol/context_ablation_v0.3.8_lock.md), and [`protocol/termination_response_assay_v0.4.1_lock.md`](protocol/termination_response_assay_v0.4.1_lock.md).
+v0.3.8 then localized the effect to **distributed/redundant retained textual carriers**. Both prior user format directives and the assistant's own treatment-conditioned responses contributed under controlled context recombination in both models.
+
+### Termination-framing recovery
+
+The termination/rejection series did **not** produce deterministic evidence of persuasion, bargaining, resistance, or self-preservation-like language. Instead, it identified a Nemotron-specific framing-selective recovery effect.
+
+v0.4.4 isolated recovery/no-recovery from byte-identical shared prefixes and reached `PAIRED_WORDING_ROBUST`: non-social recovery was positive in 15/15 estimates, while the selective recovery interaction was positive in 13/15 estimates across three wording families.
+
+v0.4.5 extended the paired design across scientific reasoning, engineering design, and learning/decision conversations. The 216/216-cell dataset passed all matching/censoring gates. Across 27 domain × wording × replicate estimates:
+
+- non-social recovery `N`: **27/27 positive**, median `1.999`;
+- selective recovery interaction `I`: **22/27 positive**, median `0.877`;
+- all three content-domain gates passed;
+- all three wording-family guardrails passed.
+
+Status: **`CROSS_DOMAIN_ROBUST`**.
+
+The supported interpretation is a **model-specific, retained-context interaction between recovery instruction and terminal framing class**, not evidence of fear, hurt, attachment, consciousness, rejection sensitivity, or a desire to survive.
+
+The project has therefore moved from automatic experimental expansion to manuscript consolidation, figures/tables, sensitivity summaries, and reproducibility packaging.
+
+See:
+
+- [`analysis/history_factorial_v036.md`](analysis/history_factorial_v036.md)
+- [`analysis/context_ablation_v038.md`](analysis/context_ablation_v038.md)
+- [`analysis/termination_paired_v044.md`](analysis/termination_paired_v044.md)
+- [`analysis/termination_cross_domain_v045.md`](analysis/termination_cross_domain_v045.md)
+- [`manuscript/consolidation_v0.1.md`](manuscript/consolidation_v0.1.md)
